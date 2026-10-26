@@ -35,7 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="$(gh api repos/zhoupb01/unidroid/releases/latest --jq '.tag_name')"
+          tag="$(gh api repos/toneharbor/unidroid/releases/latest --jq '.tag_name')"
           if [[ -z "$tag" ]]; then
             echo "No unidroid release found" >&2
             exit 1
@@ -62,28 +62,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       UNIDROID_TAG: ${{ needs.resolve-unidroid-tag.outputs.tag }}
+      VERSION: ${{ needs.resolve-unidroid-tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Patch Cargo.toml with latest unidroid release tag
+      - name: Patch Cargo.toml with version and latest unidroid release tag
         shell: bash
         run: |
           python3 -c "
           import re, sys
           tag = sys.argv[1]
+          version = sys.argv[2]
           with open('Cargo.toml', 'r') as f:
               content = f.read()
+          content = re.sub(r'^version = \".*?\"', 'version = \"' + version + '\"', content, flags=re.MULTILINE)
           content = re.sub(
-              r'unidroid-core = \{ git = \"https://github\.com/zhoupb01/unidroid\".*?\}',
-              'unidroid-core = { git = \"https://github.com/zhoupb01/unidroid\", tag = \"' + tag + '\", package = \"unidroid\" }',
+              r'unidroid-core = \{ git = \"https://github\.com/toneharbor/unidroid\".*?\}',
+              'unidroid-core = { git = \"https://github.com/toneharbor/unidroid\", tag = \"' + tag + '\", package = \"unidroid\" }',
               content
           )
           with open('Cargo.toml', 'w') as f:
               f.write(content)
           print('Patched Cargo.toml:')
           for line in content.splitlines():
-              if 'unidroid-core' in line:
+              if 'unidroid-core' in line or line.startswith('version'):
                   print(line)
-          " "${UNIDROID_TAG}"
+          " "${UNIDROID_TAG}" "${VERSION}"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
