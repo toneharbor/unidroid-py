@@ -34,7 +34,7 @@ jobs:
         run: |
           python3 -c "
           import re, sys
-          version = sys.argv[1]
+          version = sys.argv[1].lstrip('v')
           with open('Cargo.toml', 'r') as f:
               content = f.read()
           content = re.sub(r'^version = \".*?\"', 'version = \"' + version + '\"', content, flags=re.MULTILINE)
