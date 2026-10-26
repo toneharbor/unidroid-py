@@ -1,6 +1,6 @@
 # unidroid-py
 
-Python bindings for [unidroid](https://github.com/zhoupb01/unidroid) — a low-memory Android emulator that runs arm64/armv7 `.so` files on a computer, powered by Unicorn in Rust.
+Python bindings for [unidroid](https://github.com/toneharbor/unidroid) — a low-memory Android emulator that runs arm64/armv7 `.so` files on a computer, powered by Unicorn in Rust.
 
 ## Installation
 

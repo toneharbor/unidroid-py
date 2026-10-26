@@ -131,7 +131,7 @@ def main():
         print(f"  calling {cls}.{method} @ 0x{addr:x}")
         try:
             jni_args = [unidroid.JniValue.object(0)]
-            result = emu.call_jni_method(module, handler, addr, jni_args)
+            result = emu.call_jni_method(cls, 0, method, jni_args, handler)
             print(f"  result: {result}")
         except RuntimeError as e:
             print(f"  error: {e}")
