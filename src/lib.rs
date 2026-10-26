@@ -242,6 +242,7 @@ impl<'a> Drop for DetachGuard<'a> {
 #[pymethods]
 impl PyEmulator {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (rootfs=None, apk=None, process_name=None, sdk_version=None, threads=true, translation_cache_size=None, fixed_clock=None, random_seed=None))]
     fn new(
         rootfs: Option<&str>,
@@ -654,7 +655,7 @@ impl PyEmulator {
         wrap_result!(self
             .emu_mut()?
             .java_map(Handle(handle))
-            .map(|v| v.iter().map(|&(ref k, ref h)| (k.0, h.0)).collect()))
+            .map(|v| v.iter().map(|(k, h)| (k.0, h.0)).collect()))
     }
 
     fn new_java_list(&self, class: &str, items: Vec<u64>) -> PyResult<u64> {
@@ -923,6 +924,7 @@ impl PyEmulator {
     fn snapshot(&self) -> PyResult<PySnapshot> {
         wrap_result!(self.emu()?.snapshot().map(|s| PySnapshot {
             thread: s.thread,
+            #[allow(clippy::map_identity)]
             registers: s.registers.into_iter().map(|(n, v)| (n, v)).collect(),
             modules: s
                 .modules
@@ -950,7 +952,7 @@ impl PyEmulator {
             heap: s
                 .heap
                 .into_iter()
-                .map(|a| PyAllocation::from_allocation(a))
+                .map(PyAllocation::from_allocation)
                 .collect(),
         }))
     }
@@ -1862,6 +1864,7 @@ impl PySnapshot {
     fn load(path: &str) -> PyResult<PySnapshot> {
         wrap_result!(CoreSnapshot::load(path).map(|s| PySnapshot {
             thread: s.thread,
+            #[allow(clippy::map_identity)]
             registers: s.registers.into_iter().map(|(n, v)| (n, v)).collect(),
             modules: s
                 .modules
