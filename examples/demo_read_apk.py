@@ -30,6 +30,19 @@ class Handler:
         return None
 
     def member(self, emu, call):
+        tc = call.get("type_code", "V")
+        if tc in ("L", "["):
+            return 0
+        elif tc == "Z":
+            return False
+        elif tc in ("B", "C", "S", "I"):
+            return 0
+        elif tc == "J":
+            return 0
+        elif tc == "F":
+            return 0.0
+        elif tc == "D":
+            return 0.0
         return None
 
 
@@ -132,6 +145,26 @@ def main():
     print(f"  registered natives: {len(natives)}")
     for cls, method, addr in natives[:10]:
         print(f"    {cls}.{method} -> 0x{addr:x}")
+    print()
+
+    print("=== Test call_static_jni_method (ttEncrypt) ===")
+    if natives:
+        cls, method_sig, addr = natives[0]
+        print(f"  calling {cls}.{method_sig}")
+        try:
+            byte_arr = emu.new_byte_array(b"hello world")
+            arr_val = unidroid.JniValue.object(byte_arr)
+            i_val = unidroid.JniValue.int(1)
+            result = emu.call_static_jni_method(cls, method_sig, [arr_val, i_val], handler)
+            print(f"  result: {result}")
+            if result.kind() == "Object":
+                encrypted = emu.byte_array(result.value())
+                print(f"  encrypted len: {len(encrypted)}")
+                print(f"  encrypted hex: {encrypted.hex()}")
+        except RuntimeError as e:
+            print(f"  error: {e}")
+    else:
+        print("  (no registered natives)")
     print()
 
     print("Done.")

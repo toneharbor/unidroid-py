@@ -135,6 +135,55 @@ def main():
             print(f"  result: {result}")
         except RuntimeError as e:
             print(f"  error: {e}")
+    else:
+        print("  (no registered natives)")
+
+    print()
+    print("=== Test call_function (strlen) ===")
+    try:
+        strlen_addr = emu.find_symbol(libc, "strlen")
+        print(f"  strlen @ 0x{strlen_addr:x}")
+        str_ptr = emu.new_cstring("hello")
+        result = emu.call_function(strlen_addr, [str_ptr])
+        print(f"  strlen(\"hello\") = {result}")
+    except RuntimeError as e:
+        print(f"  error: {e}")
+
+    print()
+    print("=== Test call_function_with (strlen with handler) ===")
+    try:
+        strlen_addr = emu.find_symbol(libc, "strlen")
+        str_ptr = emu.new_cstring("world")
+        result = emu.call_function_with(strlen_addr, [str_ptr], handler)
+        print(f"  strlen(\"world\") via call_function_with = {result}")
+    except RuntimeError as e:
+        print(f"  error: {e}")
+
+    print()
+    print("=== Test call_static_jni_method / call_jni_method ===")
+    if natives:
+        cls, method_sig, addr = natives[0]
+        print(f"  first native: {cls}.{method_sig} @ 0x{addr:x}")
+        try:
+            result = emu.call_static_jni_method(cls, method_sig, [], handler)
+            print(f"  call_static_jni_method result: {result}")
+        except RuntimeError as e:
+            print(f"  call_static_jni_method: {e}")
+        try:
+            obj_handle = emu.new_string("test")
+            result = emu.call_jni_method(
+                cls, obj_handle, method_sig, [unidroid.JniValue.object(obj_handle)], handler
+            )
+            print(f"  call_jni_method result: {result}")
+        except RuntimeError as e:
+            print(f"  call_jni_method: {e}")
+    else:
+        print("  (no registered natives after JNI_OnLoad)")
+        print("  demonstrating API with correct signature format:")
+        sig = "b(IIJLjava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;"
+        print(f"  call_static_jni_method(class, \"{sig}\", args, handler)")
+        sig2 = "toString()Ljava/lang/String;"
+        print(f"  call_jni_method(class, receiver, \"{sig2}\", args, handler)")
     print()
 
     print("Done.")
