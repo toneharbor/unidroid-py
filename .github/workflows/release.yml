@@ -29,27 +29,18 @@ jobs:
       VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Patch Cargo.toml
+      - name: Patch Cargo.toml version
         shell: bash
         run: |
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          tag = 'v' + version
           with open('Cargo.toml', 'r') as f:
               content = f.read()
           content = re.sub(r'^version = \".*?\"', 'version = \"' + version + '\"', content, flags=re.MULTILINE)
-          content = re.sub(
-              r'unidroid-core = \{ git = \"https://github\.com/toneharbor/unidroid\".*?\}',
-              'unidroid-core = { git = \"https://github.com/toneharbor/unidroid\", tag = \"' + tag + '\", package = \"unidroid\" }',
-              content
-          )
           with open('Cargo.toml', 'w') as f:
               f.write(content)
-          print('Patched Cargo.toml:')
-          for line in content.splitlines():
-              if 'unidroid-core' in line or line.startswith('version'):
-                  print(line)
+          print('Patched version to ' + version)
           " "${VERSION}"
       - uses: actions/setup-python@v5
         with:
