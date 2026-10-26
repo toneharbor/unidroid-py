@@ -1,9 +1,22 @@
 import unidroid
 import os
+import sys
 
 APK_PATH = os.path.join(os.path.dirname(__file__), "..", "sources", "Read_7.1.3.32_APKPure.apk")
 APK_PATH = os.path.abspath(APK_PATH)
 ROOTFS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "rootfs"))
+
+if not os.path.isfile(APK_PATH):
+    print(f"APK not found: {APK_PATH}", file=sys.stderr)
+    print("Place your APK file in the sources/ directory:", file=sys.stderr)
+    print("  sources/Read_7.1.3.32_APKPure.apk", file=sys.stderr)
+    sys.exit(1)
+
+if not os.path.isdir(ROOTFS):
+    print(f"rootfs not found: {ROOTFS}", file=sys.stderr)
+    print("Clone unidroid repo to parent directory, or set ROOTFS env var:", file=sys.stderr)
+    print("  git clone https://github.com/zhoupb01/unidroid.git ../unidroid", file=sys.stderr)
+    sys.exit(1)
 
 
 class Handler:

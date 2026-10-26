@@ -217,6 +217,24 @@ pytest
 maturin build --release
 ```
 
+## Examples
+
+Examples require test data (APK, SO files) that are not included in the repository due to size.
+
+```bash
+# 1. Prepare rootfs (from unidroid repo)
+git clone https://github.com/zhoupb01/unidroid.git ../unidroid
+
+# 2. Place your APK in sources/
+mkdir -p sources
+cp /path/to/your.apk sources/Read_7.1.3.32_APKPure.apk
+
+# 3. Run
+source .venv/bin/activate
+python examples/demo_metasec_ml.py
+python examples/demo_read_apk.py
+```
+
 ## License
 
 Apache-2.0
