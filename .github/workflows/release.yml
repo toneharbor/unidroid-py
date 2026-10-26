@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.1.0)"
+        description: "Release version (e.g. 0.8.1)"
+        required: true
+        type: string
+      unidroid-ref:
+        description: "unidroid git ref (tag/branch/rev, e.g. v0.7.1)"
         required: true
         type: string
 
@@ -15,11 +19,11 @@ permissions:
   contents: write
 
 jobs:
-  resolve-unidroid-tag:
+  resolve-params:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.latest.outputs.tag }}
       version: ${{ steps.version.outputs.value }}
+      unidroid-ref: ${{ steps.ref.outputs.value }}
     steps:
       - name: Determine version
         id: version
@@ -30,24 +34,22 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
             echo "value=${version}" >> "$GITHUB_OUTPUT"
           fi
-      - name: Get latest unidroid release tag
-        id: latest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Determine unidroid ref
+        id: ref
         run: |
-          tag="$(gh api repos/toneharbor/unidroid/releases/latest --jq '.tag_name')"
-          if [[ -z "$tag" ]]; then
-            echo "No unidroid release found" >&2
-            exit 1
+          if [[ -n "${{ inputs.unidroid-ref }}" ]]; then
+            echo "value=${{ inputs.unidroid-ref }}" >> "$GITHUB_OUTPUT"
+          else
+            ref="${GITHUB_REF_NAME#v}"
+            echo "value=${ref}" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "$tag" != v* ]]; then
-            tag="v${tag}"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Using unidroid tag: $tag"
+          echo "Using unidroid ref: $(cat <<'EOF'
+          ${{ inputs.unidroid-ref }}
+          EOF
+          )"
 
   build-wheels:
-    needs: resolve-unidroid-tag
+    needs: resolve-params
     strategy:
       matrix:
         include:
@@ -61,23 +63,23 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     env:
-      UNIDROID_TAG: ${{ needs.resolve-unidroid-tag.outputs.tag }}
-      VERSION: ${{ needs.resolve-unidroid-tag.outputs.version }}
+      UNIDROID_REF: ${{ needs.resolve-params.outputs.unidroid-ref }}
+      VERSION: ${{ needs.resolve-params.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Patch Cargo.toml with version and latest unidroid release tag
+      - name: Patch Cargo.toml with version and unidroid ref
         shell: bash
         run: |
           python3 -c "
           import re, sys
-          tag = sys.argv[1]
+          ref = sys.argv[1]
           version = sys.argv[2]
           with open('Cargo.toml', 'r') as f:
               content = f.read()
           content = re.sub(r'^version = \".*?\"', 'version = \"' + version + '\"', content, flags=re.MULTILINE)
           content = re.sub(
               r'unidroid-core = \{ git = \"https://github\.com/toneharbor/unidroid\".*?\}',
-              'unidroid-core = { git = \"https://github.com/toneharbor/unidroid\", tag = \"' + tag + '\", package = \"unidroid\" }',
+              'unidroid-core = { git = \"https://github.com/toneharbor/unidroid\", tag = \"' + ref + '\", package = \"unidroid\" }',
               content
           )
           with open('Cargo.toml', 'w') as f:
@@ -86,7 +88,7 @@ jobs:
           for line in content.splitlines():
               if 'unidroid-core' in line or line.startswith('version'):
                   print(line)
-          " "${UNIDROID_TAG}" "${VERSION}"
+          " "${UNIDROID_REF}" "${VERSION}"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -106,7 +108,7 @@ jobs:
           path: dist
 
   release:
-    needs: [resolve-unidroid-tag, build-wheels]
+    needs: [resolve-params, build-wheels]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -120,10 +122,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          UNIDROID_TAG: ${{ needs.resolve-unidroid-tag.outputs.tag }}
-          VERSION: ${{ needs.resolve-unidroid-tag.outputs.version }}
+          UNIDROID_REF: ${{ needs.resolve-params.outputs.unidroid-ref }}
+          VERSION: ${{ needs.resolve-params.outputs.version }}
         run: |
-          echo "Built against unidroid ${UNIDROID_TAG}"
+          echo "Built against unidroid ${UNIDROID_REF}"
           tag="v${VERSION}"
           echo "Creating release for ${tag}"
           if gh release view "${tag}" >/dev/null 2>&1; then
