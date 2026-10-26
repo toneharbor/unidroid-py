@@ -20,3 +20,4 @@ Cargo.lock
 sources/
 bug.md
 lib_temp.rs
+.idea/

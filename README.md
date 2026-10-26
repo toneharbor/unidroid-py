@@ -207,7 +207,7 @@ maturin develop
 ### Run Tests
 
 ```bash
-cargo test --no-default-features --features test-utils
+PYTHONPATH="$(python3 -c 'import sys;print(":".join(sys.path))')" cargo test --no-default-features --features test-utils
 pytest
 ```
 
@@ -223,14 +223,17 @@ Examples require test data (APK, SO files) that are not included in the reposito
 
 ```bash
 # 1. Prepare rootfs (from unidroid repo)
-git clone https://github.com/zhoupb01/unidroid.git ../unidroid
+git clone https://github.com/toneharbor/unidroid.git ../unidroid
 
 # 2. Place your APK in sources/
 mkdir -p sources
 cp /path/to/your.apk sources/Read_7.1.3.32_APKPure.apk
 
-# 3. Run
+# 3. Build & install
 source .venv/bin/activate
+maturin develop --release
+
+# 4. Run
 python examples/demo_metasec_ml.py
 python examples/demo_read_apk.py
 ```

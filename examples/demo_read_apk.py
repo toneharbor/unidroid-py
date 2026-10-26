@@ -4,7 +4,7 @@ import sys
 
 APK_PATH = os.path.join(os.path.dirname(__file__), "..", "sources", "Read_7.1.3.32_APKPure.apk")
 APK_PATH = os.path.abspath(APK_PATH)
-ROOTFS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "rootfs"))
+ROOTFS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "unidroid", "rootfs"))
 
 if not os.path.isfile(APK_PATH):
     print(f"APK not found: {APK_PATH}", file=sys.stderr)
@@ -15,7 +15,7 @@ if not os.path.isfile(APK_PATH):
 if not os.path.isdir(ROOTFS):
     print(f"rootfs not found: {ROOTFS}", file=sys.stderr)
     print("Clone unidroid repo to parent directory, or set ROOTFS env var:", file=sys.stderr)
-    print("  git clone https://github.com/zhoupb01/unidroid.git ../unidroid", file=sys.stderr)
+    print("  git clone https://github.com/toneharbor/unidroid.git ../unidroid", file=sys.stderr)
     sys.exit(1)
 
 
@@ -29,43 +29,7 @@ class Handler:
     def is_assignable(self, emu, from_class, to_class):
         return None
 
-    def new_object(self, emu, call):
-        return None
-
-    def call_object_method(self, emu, call):
-        return None
-
-    def call_static_method(self, emu, call):
-        return None
-
-    def get_object_class(self, emu, call):
-        return None
-
-    def is_instance_of(self, emu, call):
-        return None
-
-    def get_array_length(self, emu, call):
-        return None
-
-    def get_object_array_element(self, emu, call):
-        return None
-
-    def get_static_object_field(self, emu, call):
-        return None
-
-    def get_object_field(self, emu, call):
-        return None
-
-    def set_static_object_field(self, emu, call):
-        return None
-
-    def set_object_field(self, emu, call):
-        return None
-
-    def to_string(self, emu, call):
-        return None
-
-    def register_natives(self, emu, call):
+    def member(self, emu, call):
         return None
 
 

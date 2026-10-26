@@ -39,73 +39,34 @@ macro_rules! wrap_result {
     };
 }
 
-macro_rules! jni_call_object {
-    ($self:expr, $method:literal, $call:expr) => {
-        Python::attach(|py| {
-            let handler = $self.handler.bind(py);
-            let py_emu = $self.py_emu.bind(py);
-            let call_dict = match $self.make_call_dict(py, $call) {
-                Ok(d) => d,
-                Err(e) => {
-                    $self.record_error(py, e);
-                    return None;
-                }
-            };
-            match handler.call_method1($method, (py_emu, call_dict)) {
-                Ok(r) => r.extract::<u64>().ok().map(Handle),
-                Err(e) => {
-                    $self.record_error(py, e);
-                    None
-                }
-            }
-        })
-    };
-}
-
-macro_rules! jni_call_primitive {
-    ($self:expr, $method:literal, $call:expr, $ty:ty) => {
-        Python::attach(|py| {
-            let handler = $self.handler.bind(py);
-            let py_emu = $self.py_emu.bind(py);
-            let call_dict = match $self.make_call_dict(py, $call) {
-                Ok(d) => d,
-                Err(e) => {
-                    $self.record_error(py, e);
-                    return None;
-                }
-            };
-            match handler.call_method1($method, (py_emu, call_dict)) {
-                Ok(r) => r.extract::<$ty>().ok(),
-                Err(e) => {
-                    $self.record_error(py, e);
-                    None
-                }
-            }
-        })
-    };
-}
-
-macro_rules! jni_call_void {
-    ($self:expr, $method:literal, $call:expr) => {
-        Python::attach(|py| {
-            let handler = $self.handler.bind(py);
-            let py_emu = $self.py_emu.bind(py);
-            let call_dict = match $self.make_call_dict(py, $call) {
-                Ok(d) => d,
-                Err(e) => {
-                    $self.record_error(py, e);
-                    return None;
-                }
-            };
-            match handler.call_method1($method, (py_emu, call_dict)) {
-                Ok(_) => Some(()),
-                Err(e) => {
-                    $self.record_error(py, e);
-                    None
-                }
-            }
-        })
-    };
+fn py_to_jni_value(type_code: u8, obj: &Bound<'_, PyAny>) -> PyResult<JniValue> {
+    match type_code {
+        b'L' | b'[' => obj.extract::<u64>().map(|v| JniValue::Object(Handle(v))),
+        b'Z' => obj.extract::<bool>().map(JniValue::Boolean),
+        b'B' => obj.extract::<i8>().map(JniValue::Byte),
+        b'C' => obj.extract::<u16>().map(JniValue::Char),
+        b'S' => obj.extract::<i16>().map(JniValue::Short),
+        b'I' => obj.extract::<i32>().map(JniValue::Int),
+        b'J' => obj.extract::<i64>().map(JniValue::Long),
+        b'F' => obj.extract::<f32>().map(JniValue::Float),
+        b'D' => obj.extract::<f64>().map(JniValue::Double),
+        b'V' => Ok(JniValue::Void),
+        _ => Err(PyRuntimeError::new_err(format!(
+            "unknown JNI type code: '{}'",
+            char::from(type_code)
+        ))),
+    }
+    .map_err(|e| {
+        if e.is_instance_of::<PyRuntimeError>(obj.py()) {
+            e
+        } else {
+            PyRuntimeError::new_err(format!(
+                "cannot convert Python value to JniValue for type '{}': {:?}",
+                char::from(type_code),
+                e
+            ))
+        }
+    })
 }
 
 fn to_py_err(error: Box<dyn std::error::Error>) -> PyErr {
@@ -1064,6 +1025,12 @@ impl PythonJniHandler {
         call: &JniCall<'_>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
+        dict.set_item("op", call.op.name())?;
+        dict.set_item("is_static", call.is_static)?;
+        dict.set_item(
+            "type_code",
+            std::str::from_utf8(&[call.type_code]).unwrap_or("?"),
+        )?;
         dict.set_item("class", call.class)?;
         dict.set_item("name", call.name)?;
         dict.set_item("signature", call.signature)?;
@@ -1214,252 +1181,26 @@ impl JniHandler for PythonJniHandler {
         })
     }
 
-    fn new_object(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<Handle> {
-        jni_call_object!(self, "new_object", call)
-    }
-
-    fn call_object_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<Handle> {
-        jni_call_object!(self, "call_object_method", call)
-    }
-
-    fn call_static_object_method(
-        &mut self,
-        _emu: &mut Emulator,
-        call: &JniCall<'_>,
-    ) -> Option<Handle> {
-        jni_call_object!(self, "call_static_object_method", call)
-    }
-
-    fn get_object_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<Handle> {
-        jni_call_object!(self, "get_object_field", call)
-    }
-
-    fn get_static_object_field(
-        &mut self,
-        _emu: &mut Emulator,
-        call: &JniCall<'_>,
-    ) -> Option<Handle> {
-        jni_call_object!(self, "get_static_object_field", call)
-    }
-
-    fn set_object_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_object_field", call)
-    }
-
-    fn set_static_object_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_object_field", call)
-    }
-
-    fn call_boolean_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<bool> {
-        jni_call_primitive!(self, "call_boolean_method", call, bool)
-    }
-
-    fn call_static_boolean_method(
-        &mut self,
-        _emu: &mut Emulator,
-        call: &JniCall<'_>,
-    ) -> Option<bool> {
-        jni_call_primitive!(self, "call_static_boolean_method", call, bool)
-    }
-
-    fn get_boolean_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<bool> {
-        jni_call_primitive!(self, "get_boolean_field", call, bool)
-    }
-
-    fn get_static_boolean_field(
-        &mut self,
-        _emu: &mut Emulator,
-        call: &JniCall<'_>,
-    ) -> Option<bool> {
-        jni_call_primitive!(self, "get_static_boolean_field", call, bool)
-    }
-
-    fn set_boolean_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_boolean_field", call)
-    }
-
-    fn set_static_boolean_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_boolean_field", call)
-    }
-
-    fn call_byte_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i8> {
-        jni_call_primitive!(self, "call_byte_method", call, i8)
-    }
-
-    fn call_static_byte_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i8> {
-        jni_call_primitive!(self, "call_static_byte_method", call, i8)
-    }
-
-    fn get_byte_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i8> {
-        jni_call_primitive!(self, "get_byte_field", call, i8)
-    }
-
-    fn get_static_byte_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i8> {
-        jni_call_primitive!(self, "get_static_byte_field", call, i8)
-    }
-
-    fn set_byte_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_byte_field", call)
-    }
-
-    fn set_static_byte_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_byte_field", call)
-    }
-
-    fn call_char_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<u16> {
-        jni_call_primitive!(self, "call_char_method", call, u16)
-    }
-
-    fn call_static_char_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<u16> {
-        jni_call_primitive!(self, "call_static_char_method", call, u16)
-    }
-
-    fn get_char_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<u16> {
-        jni_call_primitive!(self, "get_char_field", call, u16)
-    }
-
-    fn get_static_char_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<u16> {
-        jni_call_primitive!(self, "get_static_char_field", call, u16)
-    }
-
-    fn set_char_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_char_field", call)
-    }
-
-    fn set_static_char_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_char_field", call)
-    }
-
-    fn call_short_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i16> {
-        jni_call_primitive!(self, "call_short_method", call, i16)
-    }
-
-    fn call_static_short_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i16> {
-        jni_call_primitive!(self, "call_static_short_method", call, i16)
-    }
-
-    fn get_short_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i16> {
-        jni_call_primitive!(self, "get_short_field", call, i16)
-    }
-
-    fn get_static_short_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i16> {
-        jni_call_primitive!(self, "get_static_short_field", call, i16)
-    }
-
-    fn set_short_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_short_field", call)
-    }
-
-    fn set_static_short_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_short_field", call)
-    }
-
-    fn call_int_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i32> {
-        jni_call_primitive!(self, "call_int_method", call, i32)
-    }
-
-    fn call_static_int_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i32> {
-        jni_call_primitive!(self, "call_static_int_method", call, i32)
-    }
-
-    fn get_int_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i32> {
-        jni_call_primitive!(self, "get_int_field", call, i32)
-    }
-
-    fn get_static_int_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i32> {
-        jni_call_primitive!(self, "get_static_int_field", call, i32)
-    }
-
-    fn set_int_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_int_field", call)
-    }
-
-    fn set_static_int_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_int_field", call)
-    }
-
-    fn call_long_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i64> {
-        jni_call_primitive!(self, "call_long_method", call, i64)
-    }
-
-    fn call_static_long_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i64> {
-        jni_call_primitive!(self, "call_static_long_method", call, i64)
-    }
-
-    fn get_long_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i64> {
-        jni_call_primitive!(self, "get_long_field", call, i64)
-    }
-
-    fn get_static_long_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<i64> {
-        jni_call_primitive!(self, "get_static_long_field", call, i64)
-    }
-
-    fn set_long_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_long_field", call)
-    }
-
-    fn set_static_long_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_long_field", call)
-    }
-
-    fn call_float_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f32> {
-        jni_call_primitive!(self, "call_float_method", call, f32)
-    }
-
-    fn call_static_float_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f32> {
-        jni_call_primitive!(self, "call_static_float_method", call, f32)
-    }
-
-    fn get_float_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f32> {
-        jni_call_primitive!(self, "get_float_field", call, f32)
-    }
-
-    fn get_static_float_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f32> {
-        jni_call_primitive!(self, "get_static_float_field", call, f32)
-    }
-
-    fn set_float_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_float_field", call)
-    }
-
-    fn set_static_float_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_float_field", call)
-    }
-
-    fn call_double_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f64> {
-        jni_call_primitive!(self, "call_double_method", call, f64)
-    }
-
-    fn call_static_double_method(
-        &mut self,
-        _emu: &mut Emulator,
-        call: &JniCall<'_>,
-    ) -> Option<f64> {
-        jni_call_primitive!(self, "call_static_double_method", call, f64)
-    }
-
-    fn get_double_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f64> {
-        jni_call_primitive!(self, "get_double_field", call, f64)
-    }
-
-    fn get_static_double_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f64> {
-        jni_call_primitive!(self, "get_static_double_field", call, f64)
-    }
-
-    fn set_double_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_double_field", call)
-    }
-
-    fn set_static_double_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "set_static_double_field", call)
-    }
-
-    fn call_void_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "call_void_method", call)
-    }
-
-    fn call_static_void_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<()> {
-        jni_call_void!(self, "call_static_void_method", call)
+    fn member(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<JniValue> {
+        let type_code = call.type_code;
+        Python::attach(|py| {
+            let handler = self.handler.bind(py);
+            let py_emu = self.py_emu.bind(py);
+            let call_dict = match self.make_call_dict(py, call) {
+                Ok(d) => d,
+                Err(e) => {
+                    self.record_error(py, e);
+                    return None;
+                }
+            };
+            match handler.call_method1("member", (py_emu, call_dict)) {
+                Ok(r) => py_to_jni_value(type_code, r.as_ref()).ok(),
+                Err(e) => {
+                    self.record_error(py, e);
+                    None
+                }
+            }
+        })
     }
 }
 

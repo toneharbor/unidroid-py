@@ -13,5 +13,5 @@ extension-module = ["pyo3/extension-module"]
 test-utils = ["pyo3/auto-initialize"]
 
 [dependencies]
-unidroid-core = { git = "https://github.com/zhoupb01/unidroid", package = "unidroid" }
+unidroid-core = { git = "https://github.com/toneharbor/unidroid", package = "unidroid" }
 pyo3 = { version = "0.29.3" }

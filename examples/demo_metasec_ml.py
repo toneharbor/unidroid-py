@@ -4,7 +4,7 @@ import sys
 
 APK_PATH = os.path.join(os.path.dirname(__file__), "..", "sources", "Read_7.1.3.32_APKPure.apk")
 APK_PATH = os.path.abspath(APK_PATH)
-ROOTFS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "rootfs"))
+ROOTFS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "unidroid", "rootfs"))
 
 if not os.path.isfile(APK_PATH):
     print(f"APK not found: {APK_PATH}", file=sys.stderr)
@@ -15,7 +15,7 @@ if not os.path.isfile(APK_PATH):
 if not os.path.isdir(ROOTFS):
     print(f"rootfs not found: {ROOTFS}", file=sys.stderr)
     print("Clone unidroid repo to parent directory, or set ROOTFS env var:", file=sys.stderr)
-    print("  git clone https://github.com/zhoupb01/unidroid.git ../unidroid", file=sys.stderr)
+    print("  git clone https://github.com/toneharbor/unidroid.git ../unidroid", file=sys.stderr)
     sys.exit(1)
 
 
@@ -29,193 +29,26 @@ class Handler:
     def is_assignable(self, emu, from_class, to_class):
         return None
 
-    def new_object(self, emu, call):
-        return 0
-
-    def call_object_method(self, emu, call):
-        return 0
-
-    def call_static_object_method(self, emu, call):
-        return 0
-
-    def get_object_class(self, emu, call):
-        return None
-
-    def is_instance_of(self, emu, call):
-        return None
-
-    def get_array_length(self, emu, call):
-        return 0
-
-    def get_object_array_element(self, emu, call):
-        return 0
-
-    def get_static_object_field(self, emu, call):
-        return 0
-
-    def get_object_field(self, emu, call):
-        return 0
-
-    def set_static_object_field(self, emu, call):
-        return None
-
-    def set_object_field(self, emu, call):
-        return None
-
-    def to_string(self, emu, call):
-        return ""
-
-    def register_natives(self, emu, call):
-        return None
-
-    def call_boolean_method(self, emu, call):
-        return False
-
-    def call_static_boolean_method(self, emu, call):
-        return False
-
-    def get_boolean_field(self, emu, call):
-        return False
-
-    def get_static_boolean_field(self, emu, call):
-        return False
-
-    def set_boolean_field(self, emu, call):
-        return None
-
-    def set_static_boolean_field(self, emu, call):
-        return None
-
-    def call_byte_method(self, emu, call):
-        return 0
-
-    def call_static_byte_method(self, emu, call):
-        return 0
-
-    def get_byte_field(self, emu, call):
-        return 0
-
-    def get_static_byte_field(self, emu, call):
-        return 0
-
-    def set_byte_field(self, emu, call):
-        return None
-
-    def set_static_byte_field(self, emu, call):
-        return None
-
-    def call_char_method(self, emu, call):
-        return 0
-
-    def call_static_char_method(self, emu, call):
-        return 0
-
-    def get_char_field(self, emu, call):
-        return 0
-
-    def get_static_char_field(self, emu, call):
-        return 0
-
-    def set_char_field(self, emu, call):
-        return None
-
-    def set_static_char_field(self, emu, call):
-        return None
-
-    def call_short_method(self, emu, call):
-        return 0
-
-    def call_static_short_method(self, emu, call):
-        return 0
-
-    def get_short_field(self, emu, call):
-        return 0
-
-    def get_static_short_field(self, emu, call):
-        return 0
-
-    def set_short_field(self, emu, call):
-        return None
-
-    def set_static_short_field(self, emu, call):
-        return None
-
-    def call_int_method(self, emu, call):
-        return 0
-
-    def call_static_int_method(self, emu, call):
-        return 0
-
-    def get_int_field(self, emu, call):
-        return 0
-
-    def get_static_int_field(self, emu, call):
-        return 0
-
-    def set_int_field(self, emu, call):
-        return None
-
-    def set_static_int_field(self, emu, call):
-        return None
-
-    def call_long_method(self, emu, call):
-        return 0
-
-    def call_static_long_method(self, emu, call):
-        return 0
-
-    def get_long_field(self, emu, call):
-        return 0
-
-    def get_static_long_field(self, emu, call):
-        return 0
-
-    def set_long_field(self, emu, call):
-        return None
-
-    def set_static_long_field(self, emu, call):
-        return None
-
-    def call_float_method(self, emu, call):
-        return 0.0
-
-    def call_static_float_method(self, emu, call):
-        return 0.0
-
-    def get_float_field(self, emu, call):
-        return 0.0
-
-    def get_static_float_field(self, emu, call):
-        return 0.0
-
-    def set_float_field(self, emu, call):
-        return None
-
-    def set_static_float_field(self, emu, call):
-        return None
-
-    def call_double_method(self, emu, call):
-        return 0.0
-
-    def call_static_double_method(self, emu, call):
-        return 0.0
-
-    def get_double_field(self, emu, call):
-        return 0.0
-
-    def get_static_double_field(self, emu, call):
-        return 0.0
-
-    def set_double_field(self, emu, call):
-        return None
-
-    def set_static_double_field(self, emu, call):
-        return None
-
-    def call_void_method(self, emu, call):
-        return None
-
-    def call_static_void_method(self, emu, call):
+    def member(self, emu, call):
+        type_code = call.get("type_code", "V")
+        if type_code in ("L", "["):
+            return 0
+        elif type_code == "Z":
+            return False
+        elif type_code == "B":
+            return 0
+        elif type_code == "C":
+            return 0
+        elif type_code == "S":
+            return 0
+        elif type_code == "I":
+            return 0
+        elif type_code == "J":
+            return 0
+        elif type_code == "F":
+            return 0.0
+        elif type_code == "D":
+            return 0.0
         return None
 
 
