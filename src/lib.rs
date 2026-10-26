@@ -14,8 +14,8 @@
 //! borrow; they must not invoke other `Emulator` methods on the same
 //! instance from inside the handler.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
@@ -24,14 +24,11 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use unidroid_core::{
-    Allocation, Checkpoint, Crash, Emulator, Field, Handle,
-    HeapObject, ImportCall, JniCall, JniHandler, JniValue, Mapping, Module,
-    ModuleInfo, PrimitiveType, ReflectedMemberKind, Referrer, Resume,
-    Snapshot as CoreSnapshot, Stop, StopReason, Target, Trace, Tracepoint,
-    Watch, WatchAction,
+    Allocation, Checkpoint, Crash, Emulator, Field, Handle, HeapObject, ImportCall, JniCall,
+    JniHandler, JniValue, Mapping, Module, ModuleInfo, PrimitiveType, Referrer,
+    ReflectedMemberKind, Resume, Snapshot as CoreSnapshot, Stop, StopReason, Target, Trace,
+    Tracepoint, Watch, WatchAction,
 };
-
-
 
 macro_rules! wrap_result {
     ($expr:expr) => {
@@ -49,11 +46,17 @@ macro_rules! jni_call_object {
             let py_emu = $self.py_emu.bind(py);
             let call_dict = match $self.make_call_dict(py, $call) {
                 Ok(d) => d,
-                Err(e) => { $self.record_error(py, e); return None; }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    return None;
+                }
             };
             match handler.call_method1($method, (py_emu, call_dict)) {
                 Ok(r) => r.extract::<u64>().ok().map(Handle),
-                Err(e) => { $self.record_error(py, e); None }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    None
+                }
             }
         })
     };
@@ -66,11 +69,17 @@ macro_rules! jni_call_primitive {
             let py_emu = $self.py_emu.bind(py);
             let call_dict = match $self.make_call_dict(py, $call) {
                 Ok(d) => d,
-                Err(e) => { $self.record_error(py, e); return None; }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    return None;
+                }
             };
             match handler.call_method1($method, (py_emu, call_dict)) {
                 Ok(r) => r.extract::<$ty>().ok(),
-                Err(e) => { $self.record_error(py, e); None }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    None
+                }
             }
         })
     };
@@ -83,11 +92,17 @@ macro_rules! jni_call_void {
             let py_emu = $self.py_emu.bind(py);
             let call_dict = match $self.make_call_dict(py, $call) {
                 Ok(d) => d,
-                Err(e) => { $self.record_error(py, e); return None; }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    return None;
+                }
             };
             match handler.call_method1($method, (py_emu, call_dict)) {
                 Ok(_) => Some(()),
-                Err(e) => { $self.record_error(py, e); None }
+                Err(e) => {
+                    $self.record_error(py, e);
+                    None
+                }
             }
         })
     };
@@ -167,12 +182,19 @@ impl<'a> DerefMut for EmuGuard<'a> {
 impl PyEmulator {
     /// CHANGED: 原子占用式访问，返回 RAII guard。
     fn lock_emu(&self) -> PyResult<EmuGuard<'_>> {
-        if self.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             return Err(PyRuntimeError::new_err(
-                "Emulator is busy; concurrent access is not allowed"
+                "Emulator is busy; concurrent access is not allowed",
             ));
         }
-        Ok(EmuGuard { owner: self, _not_send: PhantomData })
+        Ok(EmuGuard {
+            owner: self,
+            _not_send: PhantomData,
+        })
     }
 
     fn emu(&self) -> PyResult<EmuGuard<'_>> {
@@ -190,12 +212,19 @@ impl PyEmulator {
     /// CHANGED: RAII guard for `py.detach` path. Same atomic logic as `EmuGuard`,
     /// but named separately to make the two access patterns distinct at the type level.
     fn enter_detach(&self) -> PyResult<DetachGuard<'_>> {
-        if self.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             return Err(PyRuntimeError::new_err(
-                "Emulator is already executing in another thread; concurrent access is not allowed"
+                "Emulator is already executing in another thread; concurrent access is not allowed",
             ));
         }
-        Ok(DetachGuard { owner: self, _not_send: PhantomData })
+        Ok(DetachGuard {
+            owner: self,
+            _not_send: PhantomData,
+        })
     }
 }
 
@@ -288,7 +317,9 @@ impl PyEmulator {
         catch_unwind(AssertUnwindSafe(|| {
             let result: Result<usize, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.load_library_without_constructors(&path).map(|m| m.0).map_err(err_to_string)
+                emu.load_library_without_constructors(&path)
+                    .map(|m| m.0)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -300,19 +331,27 @@ impl PyEmulator {
         catch_unwind(AssertUnwindSafe(|| {
             let result: Result<usize, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.load_apk_library(&name).map(|m| m.0).map_err(err_to_string)
+                emu.load_apk_library(&name)
+                    .map(|m| m.0)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
     }
 
-    fn load_apk_library_without_constructors(&self, py: Python<'_>, name: String) -> PyResult<usize> {
+    fn load_apk_library_without_constructors(
+        &self,
+        py: Python<'_>,
+        name: String,
+    ) -> PyResult<usize> {
         let _guard = self.enter_detach()?;
         let ptr = self.ptr_usize();
         catch_unwind(AssertUnwindSafe(|| {
             let result: Result<usize, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.load_apk_library_without_constructors(&name).map(|m| m.0).map_err(err_to_string)
+                emu.load_apk_library_without_constructors(&name)
+                    .map(|m| m.0)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -324,7 +363,8 @@ impl PyEmulator {
         catch_unwind(AssertUnwindSafe(|| {
             let result: Result<u64, String> = py.detach(move || {
                 let emu = unsafe { &*(ptr as *const Emulator) };
-                emu.find_symbol(Module(module), &name).map_err(err_to_string)
+                emu.find_symbol(Module(module), &name)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -377,7 +417,8 @@ impl PyEmulator {
             };
             let result: Result<u64, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.call_function_with(&mut jni_handler, function, &args).map_err(err_to_string)
+                emu.call_function_with(&mut jni_handler, function, &args)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -400,7 +441,8 @@ impl PyEmulator {
             };
             let result: Result<u64, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.call_jni_onload(Module(module), &mut jni_handler).map_err(err_to_string)
+                emu.call_jni_onload(Module(module), &mut jni_handler)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -426,7 +468,8 @@ impl PyEmulator {
             };
             let result: Result<JniValue, String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.call_static_jni_method(&mut jni_handler, &class, &method, &jni_args).map_err(err_to_string)
+                emu.call_static_jni_method(&mut jni_handler, &class, &method, &jni_args)
+                    .map_err(err_to_string)
             });
             result.map(PyJniValue).map_err(PyRuntimeError::new_err)
         }))
@@ -459,7 +502,8 @@ impl PyEmulator {
                     Handle(receiver),
                     &method,
                     &jni_args,
-                ).map_err(err_to_string)
+                )
+                .map_err(err_to_string)
             });
             result.map(PyJniValue).map_err(PyRuntimeError::new_err)
         }))
@@ -482,7 +526,8 @@ impl PyEmulator {
             };
             let result: Result<(), String> = py.detach(move || {
                 let emu = unsafe { &mut *(ptr as *mut Emulator) };
-                emu.run_constructors(Module(module), &mut jni_handler).map_err(err_to_string)
+                emu.run_constructors(Module(module), &mut jni_handler)
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -571,11 +616,17 @@ impl PyEmulator {
 
     fn new_object_array(&self, class: &str, values: Vec<u64>) -> PyResult<u64> {
         let handles: Vec<Handle> = values.iter().map(|&v| Handle(v)).collect();
-        wrap_result!(self.emu_mut()?.new_object_array(class, &handles).map(|h| h.0))
+        wrap_result!(self
+            .emu_mut()?
+            .new_object_array(class, &handles)
+            .map(|h| h.0))
     }
 
     fn object_array(&self, handle: u64) -> PyResult<Vec<u64>> {
-        wrap_result!(self.emu_mut()?.object_array(Handle(handle)).map(|v| v.iter().map(|h| h.0).collect()))
+        wrap_result!(self
+            .emu_mut()?
+            .object_array(Handle(handle))
+            .map(|v| v.iter().map(|h| h.0).collect()))
     }
 
     fn release(&self, handle: u64) -> PyResult<()> {
@@ -592,12 +643,18 @@ impl PyEmulator {
     }
 
     fn new_java_map(&self, class: &str, entries: Vec<(u64, u64)>) -> PyResult<u64> {
-        let pairs: Vec<(Handle, Handle)> = entries.iter().map(|&(k, v)| (Handle(k), Handle(v))).collect();
+        let pairs: Vec<(Handle, Handle)> = entries
+            .iter()
+            .map(|&(k, v)| (Handle(k), Handle(v)))
+            .collect();
         wrap_result!(self.emu_mut()?.new_java_map(class, &pairs).map(|h| h.0))
     }
 
     fn java_map(&self, handle: u64) -> PyResult<Vec<(u64, u64)>> {
-        wrap_result!(self.emu_mut()?.java_map(Handle(handle)).map(|v| v.iter().map(|&(ref k, ref h)| (k.0, h.0)).collect()))
+        wrap_result!(self
+            .emu_mut()?
+            .java_map(Handle(handle))
+            .map(|v| v.iter().map(|&(ref k, ref h)| (k.0, h.0)).collect()))
     }
 
     fn new_java_list(&self, class: &str, items: Vec<u64>) -> PyResult<u64> {
@@ -606,7 +663,10 @@ impl PyEmulator {
     }
 
     fn java_list(&self, handle: u64) -> PyResult<Vec<u64>> {
-        wrap_result!(self.emu_mut()?.java_list(Handle(handle)).map(|v| v.iter().map(|h| h.0).collect()))
+        wrap_result!(self
+            .emu_mut()?
+            .java_list(Handle(handle))
+            .map(|v| v.iter().map(|h| h.0).collect()))
     }
 
     fn new_reflected_method(
@@ -616,7 +676,10 @@ impl PyEmulator {
         signature: &str,
         is_static: bool,
     ) -> PyResult<u64> {
-        Ok(self.emu_mut()?.new_reflected_method(class, name, signature, is_static).0)
+        Ok(self
+            .emu_mut()?
+            .new_reflected_method(class, name, signature, is_static)
+            .0)
     }
 
     fn new_reflected_field(
@@ -626,21 +689,27 @@ impl PyEmulator {
         signature: &str,
         is_static: bool,
     ) -> PyResult<u64> {
-        Ok(self.emu_mut()?.new_reflected_field(class, name, signature, is_static).0)
+        Ok(self
+            .emu_mut()?
+            .new_reflected_field(class, name, signature, is_static)
+            .0)
     }
 
     fn reflected_member(&self, handle: u64) -> PyResult<PyReflectedMember> {
-        wrap_result!(self.emu()?.reflected_member(Handle(handle)).map(|m| PyReflectedMember {
-            class: m.class,
-            name: m.name,
-            signature: m.signature,
-            is_static: m.is_static,
-            kind: match m.kind {
-                ReflectedMemberKind::Method => "Method",
-                ReflectedMemberKind::Constructor => "Constructor",
-                ReflectedMemberKind::Field => "Field",
-            },
-        }))
+        wrap_result!(self
+            .emu()?
+            .reflected_member(Handle(handle))
+            .map(|m| PyReflectedMember {
+                class: m.class,
+                name: m.name,
+                signature: m.signature,
+                is_static: m.is_static,
+                kind: match m.kind {
+                    ReflectedMemberKind::Method => "Method",
+                    ReflectedMemberKind::Constructor => "Constructor",
+                    ReflectedMemberKind::Field => "Field",
+                },
+            }))
     }
 
     fn add_file(&self, path: &str, bytes: Vec<u8>) -> PyResult<()> {
@@ -660,12 +729,17 @@ impl PyEmulator {
     }
 
     fn modules(&self) -> PyResult<Vec<PyModuleInfo>> {
-        Ok(self.emu()?.modules().into_iter().map(|m| PyModuleInfo {
-            name: m.name,
-            path: m.path.to_string_lossy().into_owned(),
-            base: m.base,
-            size: m.size,
-        }).collect())
+        Ok(self
+            .emu()?
+            .modules()
+            .into_iter()
+            .map(|m| PyModuleInfo {
+                name: m.name,
+                path: m.path.to_string_lossy().into_owned(),
+                base: m.base,
+                size: m.size,
+            })
+            .collect())
     }
 
     fn location(&self, address: u64) -> PyResult<String> {
@@ -681,7 +755,10 @@ impl PyEmulator {
     }
 
     fn registers(&self) -> PyResult<Vec<(String, u64)>> {
-        wrap_result!(self.emu()?.registers().map(|v| v.into_iter().map(|(n, v)| (n.into(), v)).collect()))
+        wrap_result!(self
+            .emu()?
+            .registers()
+            .map(|v| v.into_iter().map(|(n, v)| (n.into(), v)).collect()))
     }
 
     fn register(&self, name: &str) -> PyResult<u64> {
@@ -693,20 +770,26 @@ impl PyEmulator {
     }
 
     fn maps(&self) -> PyResult<Vec<PyMapping>> {
-        wrap_result!(self.emu()?.maps().map(|v| v.into_iter().map(|m| PyMapping {
-            start: m.start,
-            end: m.end,
-            perms: m.perms,
-            name: m.name,
-        }).collect()))
+        wrap_result!(self.emu()?.maps().map(|v| v
+            .into_iter()
+            .map(|m| PyMapping {
+                start: m.start,
+                end: m.end,
+                perms: m.perms,
+                name: m.name,
+            })
+            .collect()))
     }
 
     fn backtrace(&self) -> PyResult<Vec<PyFrame>> {
-        wrap_result!(self.emu()?.backtrace().map(|v| v.into_iter().map(|f| PyFrame {
-            address: f.address,
-            location: f.location,
-            symbol: f.symbol,
-        }).collect()))
+        wrap_result!(self.emu()?.backtrace().map(|v| v
+            .into_iter()
+            .map(|f| PyFrame {
+                address: f.address,
+                location: f.location,
+                symbol: f.symbol,
+            })
+            .collect()))
     }
 
     fn add_breakpoint(&self, address: u64) -> PyResult<()> {
@@ -714,7 +797,9 @@ impl PyEmulator {
     }
 
     fn add_conditional_breakpoint(&self, address: u64, condition: &str) -> PyResult<()> {
-        wrap_result!(self.emu_mut()?.add_conditional_breakpoint(address, condition))
+        wrap_result!(self
+            .emu_mut()?
+            .add_conditional_breakpoint(address, condition))
     }
 
     fn remove_breakpoint(&self, address: u64) -> PyResult<()> {
@@ -726,14 +811,24 @@ impl PyEmulator {
             "read" => Watch::Read,
             "write" => Watch::Write,
             "access" => Watch::Access,
-            _ => return Err(PyRuntimeError::new_err(format!("invalid watch kind: {watch}"))),
+            _ => {
+                return Err(PyRuntimeError::new_err(format!(
+                    "invalid watch kind: {watch}"
+                )))
+            }
         };
         let watch_action = match action {
             "stop" => WatchAction::Stop,
             "log" => WatchAction::Log,
-            _ => return Err(PyRuntimeError::new_err(format!("invalid watch action: {action}"))),
+            _ => {
+                return Err(PyRuntimeError::new_err(format!(
+                    "invalid watch action: {action}"
+                )))
+            }
         };
-        wrap_result!(self.emu_mut()?.add_watchpoint(address, size, watch_kind, watch_action))
+        wrap_result!(self
+            .emu_mut()?
+            .add_watchpoint(address, size, watch_kind, watch_action))
     }
 
     fn remove_watchpoint(&self, address: u64) -> PyResult<()> {
@@ -741,7 +836,9 @@ impl PyEmulator {
     }
 
     fn add_tracepoint(&self, address: u64, values: Vec<String>, log: bool) -> PyResult<()> {
-        wrap_result!(self.emu_mut()?.add_tracepoint(address, &Tracepoint { values, log }))
+        wrap_result!(self
+            .emu_mut()?
+            .add_tracepoint(address, &Tracepoint { values, log }))
     }
 
     fn remove_tracepoint(&self, address: u64) -> PyResult<()> {
@@ -763,11 +860,14 @@ impl PyEmulator {
         catch_unwind(AssertUnwindSafe(|| {
             let result = py.detach(move || {
                 let emu = unsafe { &*(ptr as *const Emulator) };
-                emu.coverage().into_iter().map(|b| PyBlockCount {
-                    address: b.address,
-                    location: b.location,
-                    count: b.count,
-                }).collect::<Vec<_>>()
+                emu.coverage()
+                    .into_iter()
+                    .map(|b| PyBlockCount {
+                        address: b.address,
+                        location: b.location,
+                        count: b.count,
+                    })
+                    .collect::<Vec<_>>()
             });
             Ok(result)
         }))
@@ -796,11 +896,17 @@ impl PyEmulator {
         catch_unwind(AssertUnwindSafe(|| {
             let result: Result<Vec<PyCryptoConstant>, String> = py.detach(move || {
                 let emu = unsafe { &*(ptr as *const Emulator) };
-                emu.crypto_constants().map(|v| v.into_iter().map(|c| PyCryptoConstant {
-                    name: c.name.to_string(),
-                    address: c.address,
-                    location: c.location,
-                }).collect()).map_err(err_to_string)
+                emu.crypto_constants()
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|c| PyCryptoConstant {
+                                name: c.name.to_string(),
+                                address: c.address,
+                                location: c.location,
+                            })
+                            .collect()
+                    })
+                    .map_err(err_to_string)
             });
             result.map_err(PyRuntimeError::new_err)
         }))
@@ -818,19 +924,34 @@ impl PyEmulator {
         wrap_result!(self.emu()?.snapshot().map(|s| PySnapshot {
             thread: s.thread,
             registers: s.registers.into_iter().map(|(n, v)| (n, v)).collect(),
-            modules: s.modules.into_iter().map(|m| PyModuleInfo {
-                name: m.name,
-                path: m.path.to_string_lossy().into_owned(),
-                base: m.base,
-                size: m.size,
-            }).collect(),
-            memory: s.memory.into_iter().map(|(m, bytes)| (PyMapping {
-                start: m.start,
-                end: m.end,
-                perms: m.perms,
-                name: m.name,
-            }, bytes)).collect(),
-            heap: s.heap.into_iter().map(|a| PyAllocation::from_allocation(a)).collect(),
+            modules: s
+                .modules
+                .into_iter()
+                .map(|m| PyModuleInfo {
+                    name: m.name,
+                    path: m.path.to_string_lossy().into_owned(),
+                    base: m.base,
+                    size: m.size,
+                })
+                .collect(),
+            memory: s
+                .memory
+                .into_iter()
+                .map(|(m, bytes)| (
+                    PyMapping {
+                        start: m.start,
+                        end: m.end,
+                        perms: m.perms,
+                        name: m.name,
+                    },
+                    bytes
+                ))
+                .collect(),
+            heap: s
+                .heap
+                .into_iter()
+                .map(|a| PyAllocation::from_allocation(a))
+                .collect(),
         }))
     }
 
@@ -861,11 +982,17 @@ impl PyEmulator {
     }
 
     fn allocation(&self, address: u64) -> PyResult<Option<PyAllocation>> {
-        Ok(self.emu()?.allocation(address).map(PyAllocation::from_allocation))
+        Ok(self
+            .emu()?
+            .allocation(address)
+            .map(PyAllocation::from_allocation))
     }
 
     fn object(&self, address: u64, depth: usize) -> PyResult<PyHeapObject> {
-        wrap_result!(self.emu()?.object(address, depth).map(PyHeapObject::from_heap_object))
+        wrap_result!(self
+            .emu()?
+            .object(address, depth)
+            .map(PyHeapObject::from_heap_object))
     }
 
     fn module_bytes(&self, module: usize) -> PyResult<Vec<u8>> {
@@ -885,7 +1012,12 @@ impl PyEmulator {
     }
 
     fn heap(&self) -> PyResult<Vec<PyAllocation>> {
-        Ok(self.emu()?.heap().into_iter().map(PyAllocation::from_allocation).collect())
+        Ok(self
+            .emu()?
+            .heap()
+            .into_iter()
+            .map(PyAllocation::from_allocation)
+            .collect())
     }
 
     fn reset_heap(&self) -> PyResult<()> {
@@ -967,12 +1099,23 @@ impl JniHandler for PythonJniHandler {
             let handler = self.handler.bind(py);
             let py_emu = self.py_emu.bind(py);
             let args_dict = PyDict::new(py);
-            if args_dict.set_item("name", call.name).is_err() { return None; }
-            if args_dict.set_item("args", call.args.to_vec()).is_err() { return None; }
-            if let Some(original) = call.original {
-                if args_dict.set_item("original", original).is_err() { return None; }
+            if args_dict.set_item("name", call.name).is_err() {
+                return None;
             }
-            if args_dict.set_item("return_address", call.return_address).is_err() { return None; }
+            if args_dict.set_item("args", call.args.to_vec()).is_err() {
+                return None;
+            }
+            if let Some(original) = call.original {
+                if args_dict.set_item("original", original).is_err() {
+                    return None;
+                }
+            }
+            if args_dict
+                .set_item("return_address", call.return_address)
+                .is_err()
+            {
+                return None;
+            }
             let result = handler.call_method1("on_import", (py_emu, args_dict));
             match result {
                 Ok(r) => r.extract::<u64>().ok(),
@@ -989,22 +1132,46 @@ impl JniHandler for PythonJniHandler {
             let handler = self.handler.bind(py);
             let py_emu = self.py_emu.bind(py);
             let stop_dict = PyDict::new(py);
-            if stop_dict.set_item("reason", match stop.reason {
-                StopReason::Breakpoint => "Breakpoint",
-                StopReason::Watchpoint => "Watchpoint",
-                StopReason::Step => "Step",
-                StopReason::Finish => "Finish",
-            }).is_err() { return Resume::Continue; }
-            if stop_dict.set_item("address", stop.address).is_err() { return Resume::Continue; }
-            if stop_dict.set_item("thread", stop.thread).is_err() { return Resume::Continue; }
+            if stop_dict
+                .set_item(
+                    "reason",
+                    match stop.reason {
+                        StopReason::Breakpoint => "Breakpoint",
+                        StopReason::Watchpoint => "Watchpoint",
+                        StopReason::Step => "Step",
+                        StopReason::Finish => "Finish",
+                    },
+                )
+                .is_err()
+            {
+                return Resume::Continue;
+            }
+            if stop_dict.set_item("address", stop.address).is_err() {
+                return Resume::Continue;
+            }
+            if stop_dict.set_item("thread", stop.thread).is_err() {
+                return Resume::Continue;
+            }
             if let Some(hit) = &stop.watch {
                 let watch_dict = PyDict::new(py);
-                if watch_dict.set_item("pc", hit.pc).is_err() { return Resume::Continue; }
-                if watch_dict.set_item("address", hit.address).is_err() { return Resume::Continue; }
-                if watch_dict.set_item("size", hit.size).is_err() { return Resume::Continue; }
-                if watch_dict.set_item("write", hit.write).is_err() { return Resume::Continue; }
-                if watch_dict.set_item("value", hit.value).is_err() { return Resume::Continue; }
-                if stop_dict.set_item("watch", watch_dict).is_err() { return Resume::Continue; }
+                if watch_dict.set_item("pc", hit.pc).is_err() {
+                    return Resume::Continue;
+                }
+                if watch_dict.set_item("address", hit.address).is_err() {
+                    return Resume::Continue;
+                }
+                if watch_dict.set_item("size", hit.size).is_err() {
+                    return Resume::Continue;
+                }
+                if watch_dict.set_item("write", hit.write).is_err() {
+                    return Resume::Continue;
+                }
+                if watch_dict.set_item("value", hit.value).is_err() {
+                    return Resume::Continue;
+                }
+                if stop_dict.set_item("watch", watch_dict).is_err() {
+                    return Resume::Continue;
+                }
             }
             let result = handler.call_method1("stopped", (py_emu, stop_dict));
             match result {
@@ -1053,7 +1220,11 @@ impl JniHandler for PythonJniHandler {
         jni_call_object!(self, "call_object_method", call)
     }
 
-    fn call_static_object_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<Handle> {
+    fn call_static_object_method(
+        &mut self,
+        _emu: &mut Emulator,
+        call: &JniCall<'_>,
+    ) -> Option<Handle> {
         jni_call_object!(self, "call_static_object_method", call)
     }
 
@@ -1061,7 +1232,11 @@ impl JniHandler for PythonJniHandler {
         jni_call_object!(self, "get_object_field", call)
     }
 
-    fn get_static_object_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<Handle> {
+    fn get_static_object_field(
+        &mut self,
+        _emu: &mut Emulator,
+        call: &JniCall<'_>,
+    ) -> Option<Handle> {
         jni_call_object!(self, "get_static_object_field", call)
     }
 
@@ -1077,7 +1252,11 @@ impl JniHandler for PythonJniHandler {
         jni_call_primitive!(self, "call_boolean_method", call, bool)
     }
 
-    fn call_static_boolean_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<bool> {
+    fn call_static_boolean_method(
+        &mut self,
+        _emu: &mut Emulator,
+        call: &JniCall<'_>,
+    ) -> Option<bool> {
         jni_call_primitive!(self, "call_static_boolean_method", call, bool)
     }
 
@@ -1085,7 +1264,11 @@ impl JniHandler for PythonJniHandler {
         jni_call_primitive!(self, "get_boolean_field", call, bool)
     }
 
-    fn get_static_boolean_field(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<bool> {
+    fn get_static_boolean_field(
+        &mut self,
+        _emu: &mut Emulator,
+        call: &JniCall<'_>,
+    ) -> Option<bool> {
         jni_call_primitive!(self, "get_static_boolean_field", call, bool)
     }
 
@@ -1245,7 +1428,11 @@ impl JniHandler for PythonJniHandler {
         jni_call_primitive!(self, "call_double_method", call, f64)
     }
 
-    fn call_static_double_method(&mut self, _emu: &mut Emulator, call: &JniCall<'_>) -> Option<f64> {
+    fn call_static_double_method(
+        &mut self,
+        _emu: &mut Emulator,
+        call: &JniCall<'_>,
+    ) -> Option<f64> {
         jni_call_primitive!(self, "call_static_double_method", call, f64)
     }
 
@@ -1401,7 +1588,15 @@ impl PyTrace {
         calls: Vec<String>,
         coverage: Vec<String>,
     ) -> Self {
-        PyTrace { jni, syscalls, imports, heap, code, calls, coverage }
+        PyTrace {
+            jni,
+            syscalls,
+            imports,
+            heap,
+            code,
+            calls,
+            coverage,
+        }
     }
 }
 
@@ -1417,16 +1612,27 @@ struct PyModuleInfo {
 #[pymethods]
 impl PyModuleInfo {
     #[getter]
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
     #[getter]
-    fn path(&self) -> &str { &self.path }
+    fn path(&self) -> &str {
+        &self.path
+    }
     #[getter]
-    fn base(&self) -> u64 { self.base }
+    fn base(&self) -> u64 {
+        self.base
+    }
     #[getter]
-    fn size(&self) -> u64 { self.size }
+    fn size(&self) -> u64 {
+        self.size
+    }
 
     fn __repr__(&self) -> String {
-        format!("ModuleInfo(name='{}', base=0x{:x}, size=0x{:x})", self.name, self.base, self.size)
+        format!(
+            "ModuleInfo(name='{}', base=0x{:x}, size=0x{:x})",
+            self.name, self.base, self.size
+        )
     }
 }
 
@@ -1442,16 +1648,27 @@ struct PyMapping {
 #[pymethods]
 impl PyMapping {
     #[getter]
-    fn start(&self) -> u64 { self.start }
+    fn start(&self) -> u64 {
+        self.start
+    }
     #[getter]
-    fn end(&self) -> u64 { self.end }
+    fn end(&self) -> u64 {
+        self.end
+    }
     #[getter]
-    fn perms(&self) -> &str { &self.perms }
+    fn perms(&self) -> &str {
+        &self.perms
+    }
     #[getter]
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn __repr__(&self) -> String {
-        format!("Mapping(0x{:x}-0x{:x} {} '{}')", self.start, self.end, self.perms, self.name)
+        format!(
+            "Mapping(0x{:x}-0x{:x} {} '{}')",
+            self.start, self.end, self.perms, self.name
+        )
     }
 }
 
@@ -1466,11 +1683,17 @@ struct PyFrame {
 #[pymethods]
 impl PyFrame {
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn location(&self) -> &str { &self.location }
+    fn location(&self) -> &str {
+        &self.location
+    }
     #[getter]
-    fn symbol(&self) -> Option<&str> { self.symbol.as_deref() }
+    fn symbol(&self) -> Option<&str> {
+        self.symbol.as_deref()
+    }
 
     fn __repr__(&self) -> String {
         match &self.symbol {
@@ -1493,15 +1716,25 @@ struct PyReflectedMember {
 #[pymethods]
 impl PyReflectedMember {
     #[getter]
-    fn class(&self) -> &str { &self.class }
+    fn class(&self) -> &str {
+        &self.class
+    }
     #[getter]
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
     #[getter]
-    fn signature(&self) -> &str { &self.signature }
+    fn signature(&self) -> &str {
+        &self.signature
+    }
     #[getter]
-    fn is_static(&self) -> bool { self.is_static }
+    fn is_static(&self) -> bool {
+        self.is_static
+    }
     #[getter]
-    fn kind(&self) -> &str { self.kind }
+    fn kind(&self) -> &str {
+        self.kind
+    }
 }
 
 #[pyclass(name = "BlockCount", skip_from_py_object)]
@@ -1515,11 +1748,17 @@ struct PyBlockCount {
 #[pymethods]
 impl PyBlockCount {
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn location(&self) -> &str { &self.location }
+    fn location(&self) -> &str {
+        &self.location
+    }
     #[getter]
-    fn count(&self) -> u64 { self.count }
+    fn count(&self) -> u64 {
+        self.count
+    }
 }
 
 #[pyclass(name = "CryptoConstant", skip_from_py_object)]
@@ -1533,11 +1772,17 @@ struct PyCryptoConstant {
 #[pymethods]
 impl PyCryptoConstant {
     #[getter]
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn location(&self) -> &str { &self.location }
+    fn location(&self) -> &str {
+        &self.location
+    }
 }
 
 /// A checkpoint bound to the thread that created it.
@@ -1561,37 +1806,56 @@ struct PySnapshot {
 #[pymethods]
 impl PySnapshot {
     #[getter]
-    fn thread(&self) -> u32 { self.thread }
+    fn thread(&self) -> u32 {
+        self.thread
+    }
     #[getter]
-    fn registers(&self) -> Vec<(String, u64)> { self.registers.clone() }
+    fn registers(&self) -> Vec<(String, u64)> {
+        self.registers.clone()
+    }
     #[getter]
-    fn modules(&self) -> Vec<PyModuleInfo> { self.modules.clone() }
+    fn modules(&self) -> Vec<PyModuleInfo> {
+        self.modules.clone()
+    }
     #[getter]
-    fn memory(&self) -> Vec<(PyMapping, Vec<u8>)> { self.memory.clone() }
+    fn memory(&self) -> Vec<(PyMapping, Vec<u8>)> {
+        self.memory.clone()
+    }
     #[getter]
-    fn heap(&self) -> Vec<PyAllocation> { self.heap.clone() }
+    fn heap(&self) -> Vec<PyAllocation> {
+        self.heap.clone()
+    }
 
     fn save(&self, path: &str) -> PyResult<()> {
         wrap_result!(CoreSnapshot {
             thread: self.thread,
             registers: self.registers.clone(),
-            modules: self.modules.iter().map(|m| ModuleInfo {
-                name: m.name.clone(),
-                path: std::path::PathBuf::from(&m.path),
-                base: m.base,
-                size: m.size,
-            }).collect(),
-            memory: self.memory.iter().map(|(m, bytes)| {
-                let mapping = Mapping {
-                    start: m.start,
-                    end: m.end,
-                    perms: m.perms.clone(),
+            modules: self
+                .modules
+                .iter()
+                .map(|m| ModuleInfo {
                     name: m.name.clone(),
-                };
-                (mapping, bytes.clone())
-            }).collect(),
+                    path: std::path::PathBuf::from(&m.path),
+                    base: m.base,
+                    size: m.size,
+                })
+                .collect(),
+            memory: self
+                .memory
+                .iter()
+                .map(|(m, bytes)| {
+                    let mapping = Mapping {
+                        start: m.start,
+                        end: m.end,
+                        perms: m.perms.clone(),
+                        name: m.name.clone(),
+                    };
+                    (mapping, bytes.clone())
+                })
+                .collect(),
             heap: self.heap.iter().map(|a| a.to_allocation()).collect(),
-        }.save(path))
+        }
+        .save(path))
     }
 
     #[staticmethod]
@@ -1599,19 +1863,34 @@ impl PySnapshot {
         wrap_result!(CoreSnapshot::load(path).map(|s| PySnapshot {
             thread: s.thread,
             registers: s.registers.into_iter().map(|(n, v)| (n, v)).collect(),
-            modules: s.modules.into_iter().map(|m| PyModuleInfo {
-                name: m.name,
-                path: m.path.to_string_lossy().into_owned(),
-                base: m.base,
-                size: m.size,
-            }).collect(),
-            memory: s.memory.into_iter().map(|(m, bytes)| (PyMapping {
-                start: m.start,
-                end: m.end,
-                perms: m.perms,
-                name: m.name,
-            }, bytes)).collect(),
-            heap: s.heap.into_iter().map(PyAllocation::from_allocation).collect(),
+            modules: s
+                .modules
+                .into_iter()
+                .map(|m| PyModuleInfo {
+                    name: m.name,
+                    path: m.path.to_string_lossy().into_owned(),
+                    base: m.base,
+                    size: m.size,
+                })
+                .collect(),
+            memory: s
+                .memory
+                .into_iter()
+                .map(|(m, bytes)| (
+                    PyMapping {
+                        start: m.start,
+                        end: m.end,
+                        perms: m.perms,
+                        name: m.name,
+                    },
+                    bytes
+                ))
+                .collect(),
+            heap: s
+                .heap
+                .into_iter()
+                .map(PyAllocation::from_allocation)
+                .collect(),
         }))
     }
 }
@@ -1636,16 +1915,25 @@ impl PyAllocation {
             live: a.live,
             function: a.function,
             thread: a.thread,
-            backtrace: a.backtrace.into_iter().map(|f| PyFrame {
-                address: f.address,
-                location: f.location,
-                symbol: f.symbol,
-            }).collect(),
-            freed: a.freed.map(|frames| frames.into_iter().map(|f| PyFrame {
-                address: f.address,
-                location: f.location,
-                symbol: f.symbol,
-            }).collect()),
+            backtrace: a
+                .backtrace
+                .into_iter()
+                .map(|f| PyFrame {
+                    address: f.address,
+                    location: f.location,
+                    symbol: f.symbol,
+                })
+                .collect(),
+            freed: a.freed.map(|frames| {
+                frames
+                    .into_iter()
+                    .map(|f| PyFrame {
+                        address: f.address,
+                        location: f.location,
+                        symbol: f.symbol,
+                    })
+                    .collect()
+            }),
         }
     }
 
@@ -1656,16 +1944,25 @@ impl PyAllocation {
             live: self.live,
             function: self.function.clone(),
             thread: self.thread,
-            backtrace: self.backtrace.iter().map(|f| unidroid_core::Frame {
-                address: f.address,
-                location: f.location.clone(),
-                symbol: f.symbol.clone(),
-            }).collect(),
-            freed: self.freed.as_ref().map(|frames| frames.iter().map(|f| unidroid_core::Frame {
-                address: f.address,
-                location: f.location.clone(),
-                symbol: f.symbol.clone(),
-            }).collect()),
+            backtrace: self
+                .backtrace
+                .iter()
+                .map(|f| unidroid_core::Frame {
+                    address: f.address,
+                    location: f.location.clone(),
+                    symbol: f.symbol.clone(),
+                })
+                .collect(),
+            freed: self.freed.as_ref().map(|frames| {
+                frames
+                    .iter()
+                    .map(|f| unidroid_core::Frame {
+                        address: f.address,
+                        location: f.location.clone(),
+                        symbol: f.symbol.clone(),
+                    })
+                    .collect()
+            }),
         }
     }
 }
@@ -1673,22 +1970,39 @@ impl PyAllocation {
 #[pymethods]
 impl PyAllocation {
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn size(&self) -> u64 { self.size }
+    fn size(&self) -> u64 {
+        self.size
+    }
     #[getter]
-    fn live(&self) -> bool { self.live }
+    fn live(&self) -> bool {
+        self.live
+    }
     #[getter]
-    fn function(&self) -> &str { &self.function }
+    fn function(&self) -> &str {
+        &self.function
+    }
     #[getter]
-    fn thread(&self) -> u32 { self.thread }
+    fn thread(&self) -> u32 {
+        self.thread
+    }
     #[getter]
-    fn backtrace(&self) -> Vec<PyFrame> { self.backtrace.clone() }
+    fn backtrace(&self) -> Vec<PyFrame> {
+        self.backtrace.clone()
+    }
     #[getter]
-    fn freed(&self) -> Option<Vec<PyFrame>> { self.freed.clone() }
+    fn freed(&self) -> Option<Vec<PyFrame>> {
+        self.freed.clone()
+    }
 
     fn __repr__(&self) -> String {
-        format!("Allocation(0x{:x} size=0x{:x} {} thread={} live={})", self.address, self.size, self.function, self.thread, self.live)
+        format!(
+            "Allocation(0x{:x} size=0x{:x} {} thread={} live={})",
+            self.address, self.size, self.function, self.thread, self.live
+        )
     }
 }
 
@@ -1709,7 +2023,11 @@ impl PyHeapObject {
             size: obj.size,
             allocation: PyAllocation::from_allocation(obj.allocation),
             fields: obj.fields.into_iter().map(PyField::from_field).collect(),
-            referrers: obj.referrers.into_iter().map(PyReferrer::from_referrer).collect(),
+            referrers: obj
+                .referrers
+                .into_iter()
+                .map(PyReferrer::from_referrer)
+                .collect(),
         }
     }
 }
@@ -1717,15 +2035,25 @@ impl PyHeapObject {
 #[pymethods]
 impl PyHeapObject {
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn size(&self) -> u64 { self.size }
+    fn size(&self) -> u64 {
+        self.size
+    }
     #[getter]
-    fn allocation(&self) -> PyAllocation { self.allocation.clone() }
+    fn allocation(&self) -> PyAllocation {
+        self.allocation.clone()
+    }
     #[getter]
-    fn fields(&self) -> Vec<PyField> { self.fields.clone() }
+    fn fields(&self) -> Vec<PyField> {
+        self.fields.clone()
+    }
     #[getter]
-    fn referrers(&self) -> Vec<PyReferrer> { self.referrers.clone() }
+    fn referrers(&self) -> Vec<PyReferrer> {
+        self.referrers.clone()
+    }
 }
 
 #[pyclass(name = "Field", skip_from_py_object)]
@@ -1751,13 +2079,21 @@ impl PyField {
 #[pymethods]
 impl PyField {
     #[getter]
-    fn offset(&self) -> u64 { self.offset }
+    fn offset(&self) -> u64 {
+        self.offset
+    }
     #[getter]
-    fn value(&self) -> u64 { self.value }
+    fn value(&self) -> u64 {
+        self.value
+    }
     #[getter]
-    fn target(&self) -> Option<PyTarget> { self.target.clone() }
+    fn target(&self) -> Option<PyTarget> {
+        self.target.clone()
+    }
     #[getter]
-    fn string(&self) -> Option<&str> { self.string.as_deref() }
+    fn string(&self) -> Option<&str> {
+        self.string.as_deref()
+    }
 }
 
 #[pyclass(name = "Target", skip_from_py_object)]
@@ -1773,7 +2109,11 @@ struct PyTarget {
 impl PyTarget {
     fn from_target(t: Target) -> Self {
         match t {
-            Target::Block { address, offset, object } => PyTarget {
+            Target::Block {
+                address,
+                offset,
+                object,
+            } => PyTarget {
                 kind: "block".into(),
                 address: Some(address),
                 offset: Some(offset),
@@ -1794,15 +2134,25 @@ impl PyTarget {
 #[pymethods]
 impl PyTarget {
     #[getter]
-    fn kind(&self) -> &str { &self.kind }
+    fn kind(&self) -> &str {
+        &self.kind
+    }
     #[getter]
-    fn address(&self) -> Option<u64> { self.address }
+    fn address(&self) -> Option<u64> {
+        self.address
+    }
     #[getter]
-    fn offset(&self) -> Option<u64> { self.offset }
+    fn offset(&self) -> Option<u64> {
+        self.offset
+    }
     #[getter]
-    fn object(&self) -> Option<PyHeapObject> { self.object.clone() }
+    fn object(&self) -> Option<PyHeapObject> {
+        self.object.clone()
+    }
     #[getter]
-    fn location(&self) -> Option<&str> { self.location.as_deref() }
+    fn location(&self) -> Option<&str> {
+        self.location.as_deref()
+    }
 }
 
 #[pyclass(name = "Referrer", skip_from_py_object)]
@@ -1828,13 +2178,21 @@ impl PyReferrer {
 #[pymethods]
 impl PyReferrer {
     #[getter]
-    fn address(&self) -> u64 { self.address }
+    fn address(&self) -> u64 {
+        self.address
+    }
     #[getter]
-    fn location(&self) -> &str { &self.location }
+    fn location(&self) -> &str {
+        &self.location
+    }
     #[getter]
-    fn block(&self) -> Option<u64> { self.block }
+    fn block(&self) -> Option<u64> {
+        self.block
+    }
     #[getter]
-    fn object(&self) -> Option<PyHeapObject> { self.object.clone() }
+    fn object(&self) -> Option<PyHeapObject> {
+        self.object.clone()
+    }
 }
 
 #[pyclass(name = "ApkInfo", skip_from_py_object)]
@@ -1852,19 +2210,33 @@ struct PyApk {
 #[pymethods]
 impl PyApk {
     #[getter]
-    fn path(&self) -> &str { &self.path }
+    fn path(&self) -> &str {
+        &self.path
+    }
     #[getter]
-    fn package(&self) -> &str { &self.package }
+    fn package(&self) -> &str {
+        &self.package
+    }
     #[getter]
-    fn version_name(&self) -> Option<&str> { self.version_name.as_deref() }
+    fn version_name(&self) -> Option<&str> {
+        self.version_name.as_deref()
+    }
     #[getter]
-    fn version_code(&self) -> i64 { self.version_code }
+    fn version_code(&self) -> i64 {
+        self.version_code
+    }
     #[getter]
-    fn signatures(&self) -> Vec<Vec<u8>> { self.signatures.clone() }
+    fn signatures(&self) -> Vec<Vec<u8>> {
+        self.signatures.clone()
+    }
     #[getter]
-    fn signers(&self) -> Vec<Vec<u8>> { self.signers.clone() }
+    fn signers(&self) -> Vec<Vec<u8>> {
+        self.signers.clone()
+    }
     #[getter]
-    fn signing_history(&self) -> Vec<Vec<u8>> { self.signing_history.clone() }
+    fn signing_history(&self) -> Vec<Vec<u8>> {
+        self.signing_history.clone()
+    }
 }
 
 #[pymodule]
@@ -1907,14 +2279,38 @@ mod tests {
 
     #[test]
     fn parse_primitive_type_values() {
-        assert!(matches!(parse_primitive_type("Boolean").unwrap(), PrimitiveType::Boolean));
-        assert!(matches!(parse_primitive_type("Byte").unwrap(), PrimitiveType::Byte));
-        assert!(matches!(parse_primitive_type("Char").unwrap(), PrimitiveType::Char));
-        assert!(matches!(parse_primitive_type("Short").unwrap(), PrimitiveType::Short));
-        assert!(matches!(parse_primitive_type("Int").unwrap(), PrimitiveType::Int));
-        assert!(matches!(parse_primitive_type("Long").unwrap(), PrimitiveType::Long));
-        assert!(matches!(parse_primitive_type("Float").unwrap(), PrimitiveType::Float));
-        assert!(matches!(parse_primitive_type("Double").unwrap(), PrimitiveType::Double));
+        assert!(matches!(
+            parse_primitive_type("Boolean").unwrap(),
+            PrimitiveType::Boolean
+        ));
+        assert!(matches!(
+            parse_primitive_type("Byte").unwrap(),
+            PrimitiveType::Byte
+        ));
+        assert!(matches!(
+            parse_primitive_type("Char").unwrap(),
+            PrimitiveType::Char
+        ));
+        assert!(matches!(
+            parse_primitive_type("Short").unwrap(),
+            PrimitiveType::Short
+        ));
+        assert!(matches!(
+            parse_primitive_type("Int").unwrap(),
+            PrimitiveType::Int
+        ));
+        assert!(matches!(
+            parse_primitive_type("Long").unwrap(),
+            PrimitiveType::Long
+        ));
+        assert!(matches!(
+            parse_primitive_type("Float").unwrap(),
+            PrimitiveType::Float
+        ));
+        assert!(matches!(
+            parse_primitive_type("Double").unwrap(),
+            PrimitiveType::Double
+        ));
     }
 
     #[test]
@@ -2067,9 +2463,18 @@ mod tests {
 
     #[test]
     fn jni_value_repr() {
-        assert_eq!(PyJniValue(JniValue::Object(Handle(42))).__repr__(), "JniValue(Object(42))");
-        assert_eq!(PyJniValue(JniValue::Boolean(true)).__repr__(), "JniValue(Boolean(true))");
-        assert_eq!(PyJniValue(JniValue::Long(-1)).__repr__(), "JniValue(Long(-1))");
+        assert_eq!(
+            PyJniValue(JniValue::Object(Handle(42))).__repr__(),
+            "JniValue(Object(42))"
+        );
+        assert_eq!(
+            PyJniValue(JniValue::Boolean(true)).__repr__(),
+            "JniValue(Boolean(true))"
+        );
+        assert_eq!(
+            PyJniValue(JniValue::Long(-1)).__repr__(),
+            "JniValue(Long(-1))"
+        );
         assert_eq!(PyJniValue(JniValue::Void).__repr__(), "JniValue(Void)");
     }
 
@@ -2192,7 +2597,10 @@ mod tests {
             base: 0x1000,
             size: 0x2000,
         };
-        assert_eq!(info.__repr__(), "ModuleInfo(name='libfoo.so', base=0x1000, size=0x2000)");
+        assert_eq!(
+            info.__repr__(),
+            "ModuleInfo(name='libfoo.so', base=0x1000, size=0x2000)"
+        );
     }
 
     #[test]
@@ -2237,6 +2645,9 @@ mod tests {
             backtrace: vec![],
             freed: None,
         };
-        assert_eq!(a.__repr__(), "Allocation(0x1000 size=0x100 malloc thread=2 live=true)");
+        assert_eq!(
+            a.__repr__(),
+            "Allocation(0x1000 size=0x100 malloc thread=2 live=true)"
+        );
     }
 }
