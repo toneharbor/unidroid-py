@@ -13,3 +13,4 @@ classifiers = [
 
 [tool.maturin]
 features = ["extension-module"]
+module-name = "unidroid._unidroid"

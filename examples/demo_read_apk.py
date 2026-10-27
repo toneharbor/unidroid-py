@@ -1,4 +1,5 @@
 import unidroid
+from unidroid import DefaultHandler, JniCall
 import os
 import sys
 
@@ -19,31 +20,15 @@ if not os.path.isdir(ROOTFS):
     sys.exit(1)
 
 
-class Handler:
-    def on_import(self, emu, call):
-        return None
+class Handler(DefaultHandler):
+    """Fine-grained JNI handler — override only what you need."""
+    def on_call_static_method(self, emu, call):
+        print(f"  [JNI] static: {call.class_name}.{call.name}{call.signature}")
+        return call.default_value
 
-    def stopped(self, emu, stop):
-        return "Continue"
-
-    def is_assignable(self, emu, from_class, to_class):
-        return None
-
-    def member(self, emu, call):
-        tc = call.get("type_code", "V")
-        if tc in ("L", "["):
-            return 0
-        elif tc == "Z":
-            return False
-        elif tc in ("B", "C", "S", "I"):
-            return 0
-        elif tc == "J":
-            return 0
-        elif tc == "F":
-            return 0.0
-        elif tc == "D":
-            return 0.0
-        return None
+    def on_call_instance_method(self, emu, call):
+        print(f"  [JNI] instance: {call.class_name}.{call.name}{call.signature}")
+        return call.default_value
 
 
 def main():

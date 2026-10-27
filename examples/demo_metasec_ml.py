@@ -1,4 +1,5 @@
 import unidroid
+from unidroid import DefaultHandler, JniCall, SimpleHandler
 import os
 import sys
 
@@ -19,37 +20,26 @@ if not os.path.isdir(ROOTFS):
     sys.exit(1)
 
 
-class Handler:
-    def on_import(self, emu, call):
-        return None
+class Handler(DefaultHandler):
+    """Override specific callbacks instead of the monolithic member().
 
-    def stopped(self, emu, stop):
-        return "Continue"
+    Available callbacks:
+      on_call_static_method(emu, call)   - static method invocations
+      on_call_instance_method(emu, call) - instance method invocations
+      on_get_static_field(emu, call)     - static field reads
+      on_get_instance_field(emu, call)   - instance field reads
+      on_set_static_field(emu, call)     - static field writes
+      on_set_instance_field(emu, call)   - instance field writes
+      on_new_object(emu, call)           - object construction
+      on_import(emu, call)               - imported symbol calls
+    """
+    def on_call_static_method(self, emu, call):
+        print(f"  [JNI] static call: {call.class_name}.{call.name}{call.signature}")
+        return call.default_value
 
-    def is_assignable(self, emu, from_class, to_class):
-        return None
-
-    def member(self, emu, call):
-        type_code = call.get("type_code", "V")
-        if type_code in ("L", "["):
-            return 0
-        elif type_code == "Z":
-            return False
-        elif type_code == "B":
-            return 0
-        elif type_code == "C":
-            return 0
-        elif type_code == "S":
-            return 0
-        elif type_code == "I":
-            return 0
-        elif type_code == "J":
-            return 0
-        elif type_code == "F":
-            return 0.0
-        elif type_code == "D":
-            return 0.0
-        return None
+    def on_call_instance_method(self, emu, call):
+        print(f"  [JNI] instance call: {call.class_name}.{call.name}{call.signature} receiver=0x{call.receiver:x}")
+        return call.default_value
 
 
 def main():

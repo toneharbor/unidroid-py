@@ -1984,7 +1984,7 @@ impl PyApk {
 }
 
 #[pymodule]
-fn unidroid(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _unidroid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEmulator>()?;
     m.add_class::<PyJniValue>()?;
     m.add_class::<PyTrace>()?;
@@ -2225,7 +2225,7 @@ mod tests {
     #[test]
     fn emu_guard_drop_releases_busy() {
         let emu = Emulator::builder()
-            .rootfs("../rootfs")
+            .rootfs("../../unidroid/rootfs")
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2247,7 +2247,7 @@ mod tests {
     #[test]
     fn emu_guard_double_lock_fails() {
         let emu = Emulator::builder()
-            .rootfs("../rootfs")
+            .rootfs("../../unidroid/rootfs")
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2267,7 +2267,7 @@ mod tests {
     #[test]
     fn emu_guard_panic_safe() {
         let emu = Emulator::builder()
-            .rootfs("../rootfs")
+            .rootfs("../../unidroid/rootfs")
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2289,7 +2289,7 @@ mod tests {
     #[test]
     fn take_jni_errors_drains() {
         let emu = Emulator::builder()
-            .rootfs("../rootfs")
+            .rootfs("../../unidroid/rootfs")
             .threads(false)
             .build()
             .expect("failed to build emulator");
