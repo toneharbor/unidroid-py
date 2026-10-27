@@ -38,9 +38,10 @@ jobs:
           with open('Cargo.toml', 'r') as f:
               content = f.read()
           content = re.sub(r'^version = \".*?\"', 'version = \"' + version + '\"', content, flags=re.MULTILINE)
+          content = re.sub(r'tag = \"v.*?\"', 'tag = \"v' + version + '\"', content)
           with open('Cargo.toml', 'w') as f:
               f.write(content)
-          print('Patched version to ' + version)
+          print('Patched version and tag to ' + version)
           " "${VERSION}"
       - uses: actions/setup-python@v5
         with:
@@ -78,7 +79,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag="v${VERSION}"
+          version="${VERSION#v}"
+          tag="v${version}"
           echo "Creating release for ${tag}"
           if gh release view "${tag}" >/dev/null 2>&1; then
             echo "Release ${tag} already exists, uploading assets"
