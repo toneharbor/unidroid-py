@@ -1,0 +1,2 @@
+[alias]
+test-lib = "test --no-default-features --lib"

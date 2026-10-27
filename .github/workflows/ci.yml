@@ -18,14 +18,17 @@ jobs:
           sparse-checkout: rootfs
           path: _rootfs_repo
       - name: Symlink rootfs for tests
-        run: ln -s "$(pwd)/_rootfs_repo/rootfs" "$(pwd)/../rootfs"
+        run: |
+          mkdir -p _rootfs
+          ln -s "$(pwd)/_rootfs_repo/rootfs" "$(pwd)/_rootfs/rootfs"
+          echo "UNIDROID_ROOTFS=$(pwd)/_rootfs/rootfs" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --no-default-features --features test-utils
+      - run: cargo clippy --no-default-features --lib -- -D warnings
+      - run: cargo test --no-default-features --lib
 
   build-wheel:
     strategy:

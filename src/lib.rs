@@ -141,21 +141,22 @@ impl<'a> DerefMut for EmuGuard<'a> {
 }
 
 impl PyEmulator {
-    /// CHANGED: 原子占用式访问，返回 RAII guard。
-    fn lock_emu(&self) -> PyResult<EmuGuard<'_>> {
+    fn try_lock_emu(&self) -> Result<EmuGuard<'_>, &'static str> {
         if self
             .busy
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
-            return Err(PyRuntimeError::new_err(
-                "Emulator is busy; concurrent access is not allowed",
-            ));
+            return Err("Emulator is busy; concurrent access is not allowed");
         }
         Ok(EmuGuard {
             owner: self,
             _not_send: PhantomData,
         })
+    }
+
+    fn lock_emu(&self) -> PyResult<EmuGuard<'_>> {
+        self.try_lock_emu().map_err(PyRuntimeError::new_err)
     }
 
     fn emu(&self) -> PyResult<EmuGuard<'_>> {
@@ -989,7 +990,7 @@ impl PyEmulator {
     }
 }
 
-fn parse_primitive_type(kind: &str) -> PyResult<PrimitiveType> {
+fn parse_primitive_type_inner(kind: &str) -> Result<PrimitiveType, String> {
     match kind {
         "Boolean" => Ok(PrimitiveType::Boolean),
         "Byte" => Ok(PrimitiveType::Byte),
@@ -999,10 +1000,14 @@ fn parse_primitive_type(kind: &str) -> PyResult<PrimitiveType> {
         "Long" => Ok(PrimitiveType::Long),
         "Float" => Ok(PrimitiveType::Float),
         "Double" => Ok(PrimitiveType::Double),
-        _ => Err(PyRuntimeError::new_err(format!(
+        _ => Err(format!(
             "invalid primitive type: {kind}; expected Boolean, Byte, Char, Short, Int, Long, Float, Double"
-        ))),
+        )),
     }
+}
+
+fn parse_primitive_type(kind: &str) -> PyResult<PrimitiveType> {
+    parse_primitive_type_inner(kind).map_err(PyRuntimeError::new_err)
 }
 
 struct PythonJniHandler {
@@ -2008,58 +2013,63 @@ fn _unidroid(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    fn rootfs() -> String {
+        env::var("UNIDROID_ROOTFS").unwrap_or_else(|_| "../../unidroid/rootfs".to_string())
+    }
 
     #[test]
     fn parse_primitive_type_valid() {
-        assert!(parse_primitive_type("Boolean").is_ok());
-        assert!(parse_primitive_type("Byte").is_ok());
-        assert!(parse_primitive_type("Char").is_ok());
-        assert!(parse_primitive_type("Short").is_ok());
-        assert!(parse_primitive_type("Int").is_ok());
-        assert!(parse_primitive_type("Long").is_ok());
-        assert!(parse_primitive_type("Float").is_ok());
-        assert!(parse_primitive_type("Double").is_ok());
+        assert!(parse_primitive_type_inner("Boolean").is_ok());
+        assert!(parse_primitive_type_inner("Byte").is_ok());
+        assert!(parse_primitive_type_inner("Char").is_ok());
+        assert!(parse_primitive_type_inner("Short").is_ok());
+        assert!(parse_primitive_type_inner("Int").is_ok());
+        assert!(parse_primitive_type_inner("Long").is_ok());
+        assert!(parse_primitive_type_inner("Float").is_ok());
+        assert!(parse_primitive_type_inner("Double").is_ok());
     }
 
     #[test]
     fn parse_primitive_type_values() {
         assert!(matches!(
-            parse_primitive_type("Boolean").unwrap(),
+            parse_primitive_type_inner("Boolean").unwrap(),
             PrimitiveType::Boolean
         ));
         assert!(matches!(
-            parse_primitive_type("Byte").unwrap(),
+            parse_primitive_type_inner("Byte").unwrap(),
             PrimitiveType::Byte
         ));
         assert!(matches!(
-            parse_primitive_type("Char").unwrap(),
+            parse_primitive_type_inner("Char").unwrap(),
             PrimitiveType::Char
         ));
         assert!(matches!(
-            parse_primitive_type("Short").unwrap(),
+            parse_primitive_type_inner("Short").unwrap(),
             PrimitiveType::Short
         ));
         assert!(matches!(
-            parse_primitive_type("Int").unwrap(),
+            parse_primitive_type_inner("Int").unwrap(),
             PrimitiveType::Int
         ));
         assert!(matches!(
-            parse_primitive_type("Long").unwrap(),
+            parse_primitive_type_inner("Long").unwrap(),
             PrimitiveType::Long
         ));
         assert!(matches!(
-            parse_primitive_type("Float").unwrap(),
+            parse_primitive_type_inner("Float").unwrap(),
             PrimitiveType::Float
         ));
         assert!(matches!(
-            parse_primitive_type("Double").unwrap(),
+            parse_primitive_type_inner("Double").unwrap(),
             PrimitiveType::Double
         ));
     }
 
     #[test]
     fn parse_primitive_type_invalid() {
-        let err = parse_primitive_type("String").unwrap_err();
+        let err = parse_primitive_type_inner("String").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("invalid primitive type: String"));
         assert!(msg.contains("expected Boolean, Byte, Char, Short, Int, Long, Float, Double"));
@@ -2225,7 +2235,7 @@ mod tests {
     #[test]
     fn emu_guard_drop_releases_busy() {
         let emu = Emulator::builder()
-            .rootfs("../../unidroid/rootfs")
+            .rootfs(&rootfs())
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2237,7 +2247,7 @@ mod tests {
         };
         assert!(!py_emu.busy.load(Ordering::Acquire));
         {
-            let guard = py_emu.lock_emu().expect("lock should succeed");
+            let guard = py_emu.try_lock_emu().expect("lock should succeed");
             assert!(py_emu.busy.load(Ordering::Acquire));
             let _ = &*guard;
         }
@@ -2247,7 +2257,7 @@ mod tests {
     #[test]
     fn emu_guard_double_lock_fails() {
         let emu = Emulator::builder()
-            .rootfs("../../unidroid/rootfs")
+            .rootfs(&rootfs())
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2257,9 +2267,9 @@ mod tests {
             busy: AtomicBool::new(false),
             last_errors: Mutex::new(Vec::new()),
         };
-        let _guard1 = py_emu.lock_emu().expect("first lock should succeed");
-        match py_emu.lock_emu() {
-            Err(e) => assert!(e.to_string().contains("Emulator is busy")),
+        let _guard1 = py_emu.try_lock_emu().expect("first lock should succeed");
+        match py_emu.try_lock_emu() {
+            Err(e) => assert!(e.contains("Emulator is busy")),
             Ok(_) => panic!("second lock should fail"),
         };
     }
@@ -2267,7 +2277,7 @@ mod tests {
     #[test]
     fn emu_guard_panic_safe() {
         let emu = Emulator::builder()
-            .rootfs("../../unidroid/rootfs")
+            .rootfs(&rootfs())
             .threads(false)
             .build()
             .expect("failed to build emulator");
@@ -2278,7 +2288,7 @@ mod tests {
             last_errors: Mutex::new(Vec::new()),
         };
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            let _guard = py_emu.lock_emu().expect("lock should succeed");
+            let _guard = py_emu.try_lock_emu().expect("lock should succeed");
             assert!(py_emu.busy.load(Ordering::Acquire));
             panic!("intentional");
         }));
@@ -2289,7 +2299,7 @@ mod tests {
     #[test]
     fn take_jni_errors_drains() {
         let emu = Emulator::builder()
-            .rootfs("../../unidroid/rootfs")
+            .rootfs(&rootfs())
             .threads(false)
             .build()
             .expect("failed to build emulator");

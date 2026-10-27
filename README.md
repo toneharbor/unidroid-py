@@ -14,10 +14,17 @@ maturin develop --release
 ## Quick Start
 
 ```python
-from unidroid import Emulator, JniValue
+from unidroid import Emulator, JniValue, DefaultHandler
+
+class MyHandler(DefaultHandler):
+    def on_call_static_method(self, emu, call):
+        if call.class_name == "com/example/Foo" and call.name == "bar":
+            return 42
+        return call.default_value
 
 emu = Emulator(rootfs="rootfs", process_name="com.example.app")
 emu.load_library("libfoo.so")
+emu.call_jni_onload(0, handler=MyHandler())
 
 result = emu.call_static_jni_method(
     module=0,
@@ -25,9 +32,89 @@ result = emu.call_static_jni_method(
     method_name="bar",
     signature="(I)J",
     args=[JniValue.int(42)],
+    handler=MyHandler(),
 )
 print(result)
 ```
+
+## Handler API
+
+All JNI callbacks receive **typed dataclass** arguments (`JniCall`, `ImportCall`, `StopCall`), never raw dicts. The `Emulator` wrapper automatically converts handler arguments — you never need to call `_wrap_handler` yourself.
+
+### JniHandler (base class)
+
+Override only the methods you need:
+
+| Method | When called | Return |
+|--------|-------------|--------|
+| `on_import(emu, call: ImportCall)` | Library import hook | `Optional[int]` |
+| `stopped(emu, stop: StopCall)` | Emulator stopped | `str` (`"Continue"` to resume) |
+| `is_assignable(emu, from_class, to_class)` | Class assignability check | `Optional[bool]` |
+| `member(emu, call: JniCall)` | Any JNI member access | `Any` |
+
+### Dispatch tree
+
+`member()` auto-dispatches to fine-grained callbacks:
+
+```
+member()
+  ├── on_call_method()              op == "call"
+  │     ├── on_call_static_method()       is_static == True
+  │     └── on_call_instance_method()     is_static == False
+  ├── on_get_field()                op == "get"
+  │     ├── on_get_static_field()         is_static == True
+  │     └── on_get_instance_field()       is_static == False
+  ├── on_set_field()                op == "set"
+  │     ├── on_set_static_field()         is_static == True
+  │     └── on_set_instance_field()       is_static == False
+  └── on_new_object()               op == "new"
+```
+
+### DefaultHandler
+
+Returns default zero values (`0`, `0.0`, `None`, `False`) for all JNI calls. Subclass and override specific callbacks:
+
+```python
+from unidroid import DefaultHandler
+
+class MyHandler(DefaultHandler):
+    def on_call_static_method(self, emu, call):
+        if call.class_name == "com/example/Foo" and call.name == "bar":
+            return 42
+        return call.default_value
+```
+
+### SimpleHandler
+
+Register callbacks per class+method with decorators:
+
+```python
+from unidroid import SimpleHandler
+
+handler = SimpleHandler()
+
+@handler.on("com/example/Foo", "bar")
+def handle_bar(emu, call):
+    return 42
+
+@handler.on("com/example/Foo", "getField", op="get")
+def handle_get(emu, call):
+    return 0
+```
+
+### JniCall dataclass
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `op` | `str` | `"call"`, `"get"`, `"set"`, `"new"` |
+| `is_static` | `bool` | Static vs instance |
+| `type_code` | `str` | JNI type code (`"I"`, `"J"`, `"L"`, etc.) |
+| `class_name` | `str` | JNI class name |
+| `name` | `str` | Member name |
+| `signature` | `str` | JNI signature |
+| `receiver` | `int` | Object handle (0 for static) |
+| `args` | `list` | Arguments |
+| `default_value` | property | Default zero value for this type_code |
 
 ## API Overview
 
@@ -207,7 +294,7 @@ maturin develop
 ### Run Tests
 
 ```bash
-PYTHONPATH="$(python3 -c 'import sys;print(":".join(sys.path))')" cargo test --no-default-features --features test-utils
+cargo test-lib
 pytest
 ```
 

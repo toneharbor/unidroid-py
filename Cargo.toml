@@ -10,7 +10,6 @@ crate-type = ["cdylib", "lib"]
 [features]
 default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
-test-utils = ["pyo3/auto-initialize"]
 
 [dependencies]
 unidroid-core = { git = "https://github.com/toneharbor/unidroid", package = "unidroid" }
