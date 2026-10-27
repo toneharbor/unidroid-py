@@ -12,19 +12,10 @@ permissions:
   contents: write
 
 jobs:
-  build-wheels:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.os }}
+  bump:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -43,6 +34,52 @@ jobs:
               f.write(content)
           print('Patched version and tag to ' + version)
           " "${VERSION}"
+      - name: Commit, tag, and push
+        id: set-version
+        shell: bash
+        run: |
+          version="${VERSION#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          tag="v${version}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: bump version to ${tag}"
+          git tag "${tag}"
+          git push origin HEAD:${{ github.ref }} --tags
+
+  build-wheels:
+    needs: bump
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.bump.outputs.version }}
+      - name: Normalize version
+        id: version
+        shell: bash
+        run: |
+          version="${VERSION#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ steps.version.outputs.version }}
+      - name: Remove Cargo.lock
+        run: rm -f Cargo.lock
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -74,6 +111,14 @@ jobs:
           path: dist
       - name: List wheels
         run: ls -la dist/
+      - name: Checkout source for archive
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+      - name: Create source archive
+        run: |
+          version="${VERSION#v}"
+          git archive --format=tar.gz --prefix="unidroid-v${version}/" -o "dist/unidroid-v${version}-source.tar.gz" HEAD
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
