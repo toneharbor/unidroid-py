@@ -50,6 +50,8 @@ jobs:
             git commit -m "chore: bump version to ${tag}"
           fi
           git tag -f "${tag}"
+          git pull --rebase origin ${{ github.ref }}
+          git tag -f "${tag}"
           git push origin HEAD:${{ github.ref }} --tags --force
 
   build-wheels:
