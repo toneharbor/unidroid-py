@@ -44,9 +44,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml
-          git commit -m "chore: bump version to ${tag}"
-          git tag "${tag}"
-          git push origin HEAD:${{ github.ref }} --tags
+          if git diff --cached --quiet; then
+            echo "No changes to commit, version already ${tag}"
+          else
+            git commit -m "chore: bump version to ${tag}"
+          fi
+          git tag -f "${tag}"
+          git push origin HEAD:${{ github.ref }} --tags --force
 
   build-wheels:
     needs: bump
@@ -94,6 +98,10 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
     steps:
+      - name: Checkout source for archive
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.bump.outputs.version }}
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
@@ -101,10 +109,6 @@ jobs:
           path: dist
       - name: List wheels
         run: ls -la dist/
-      - name: Checkout source for archive
-        uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.bump.outputs.version }}
       - name: Create source archive
         run: |
           version="${VERSION#v}"
