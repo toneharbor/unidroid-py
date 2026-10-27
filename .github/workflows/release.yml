@@ -113,6 +113,7 @@ jobs:
           repository: toneharbor/unidroid
           ref: v${{ needs.bump.outputs.version }}
           path: _unidroid_core
+          clean: false
       - name: Create source archive
         working-directory: _unidroid_core
         run: |
