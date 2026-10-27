@@ -100,10 +100,6 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
     steps:
-      - name: Checkout source for archive
-        uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.bump.outputs.version }}
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
@@ -111,10 +107,17 @@ jobs:
           path: dist
       - name: List wheels
         run: ls -la dist/
+      - name: Checkout unidroid-core for archive
+        uses: actions/checkout@v4
+        with:
+          repository: toneharbor/unidroid
+          ref: v${{ needs.bump.outputs.version }}
+          path: _unidroid_core
       - name: Create source archive
+        working-directory: _unidroid_core
         run: |
           version="${VERSION#v}"
-          git archive --format=tar.gz --prefix="unidroid-v${version}/" -o "dist/unidroid-v${version}-source.tar.gz" HEAD
+          git archive --format=tar.gz --prefix="unidroid-v${version}/" -o "${{ github.workspace }}/dist/unidroid-v${version}-source.tar.gz" HEAD
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
