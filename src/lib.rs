@@ -13,6 +13,21 @@
 //! User-supplied JNI handlers may call back into Python while holding this
 //! borrow; they must not invoke other `Emulator` methods on the same
 //! instance from inside the handler.
+//!
+//! # Cancellation
+//!
+//! `CancelToken` is the one object that is safe to use from a second thread
+//! while a call is in flight. It never touches the `Emulator` (so it is not
+//! blocked by the busy flag): it only flips an `Arc<AtomicBool>` that the
+//! guest reads between basic blocks. Long-running methods release the GIL,
+//! which is what lets the cancelling thread run at all.
+//!
+//! Two independent escape hatches exist for a spinning guest:
+//!
+//! * `Emulator(instruction_budget=N)` fails the call after `N` guest
+//!   instructions. Reusable afterwards, no reset needed.
+//! * `Emulator(cancel_token=token)` plus `token.cancel()` from another thread.
+//!   The flag is sticky: every later call fails until `token.reset()`.
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -22,7 +37,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use unidroid_core::{
     Allocation, Checkpoint, Crash, Emulator, Field, Handle, HeapObject, ImportCall, JniCall,
     JniHandler, JniValue, Mapping, Module, ModuleInfo, PrimitiveType, Referrer,
@@ -102,6 +117,62 @@ where
     }
 }
 
+/// 取消令牌。故意独立于 `PyEmulator` 的 busy 锁：`call_function` 执行期间
+/// `busy` 恒为 true，任何经过 `try_lock_emu`/`enter_detach` 的方法都会返回
+/// "already executing"，所以取消入口不能走那条路径。令牌只读写一个
+/// `Arc<AtomicBool>`，core 在每个基本块边界读取它，调用方线程不碰 CPU。
+///
+/// 用法：先创建令牌并保留引用，再把它交给 `Emulator(cancel_token=tok)`，
+/// 然后从另一个线程调用 `tok.cancel()`。
+///
+/// * 同一个令牌可以交给多个 `Emulator`，此时它就是一个全局急停开关。
+/// * 令牌必须被 Python 侧持有；`Emulator(cancel_token=CancelToken())` 这种
+///   写法会让句柄立刻丢失，之后就再也取消不了。
+/// * 配置了令牌就会在 core 里安装逐基本块的 hook，即使从未取消也有额外开销。
+#[pyclass(name = "CancelToken")]
+struct PyCancelToken {
+    flag: Arc<AtomicBool>,
+}
+
+#[pymethods]
+impl PyCancelToken {
+    #[new]
+    fn new() -> Self {
+        PyCancelToken {
+            flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// 置位取消标志；正在执行的 guest 调用会在下一个基本块边界返回错误。
+    ///
+    /// 标志是粘性的：置位后所有后续调用都会立刻失败，直到 `reset()`。
+    fn cancel(&self) {
+        self.flag.store(true, Ordering::Relaxed);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Relaxed)
+    }
+
+    /// 复位标志，以便同一个令牌在后续调用中复用。
+    fn reset(&self) {
+        self.flag.store(false, Ordering::Relaxed);
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CancelToken(cancelled={})", self.is_cancelled())
+    }
+}
+
+/// 模拟器实例。
+///
+/// 构造参数（仅列新增项，其余见 `__text_signature__`）：
+///
+/// * `instruction_budget`：每次顶层 guest 调用的指令预算。超出时抛
+///   RuntimeError；下一次调用会自动重置预算，不需要手动复位。
+///   `None` 与 `0` 都表示不设限（默认）。非零值会安装逐基本块的 hook。
+/// * `cancel_token`：`CancelToken` 实例，用于从另一个线程中断正在执行的
+///   guest 调用。置位后是粘性的，需要 `token.reset()` 才能继续使用。
 #[pyclass(name = "Emulator")]
 struct PyEmulator {
     emu: UnsafeCell<Emulator>,
@@ -203,9 +274,18 @@ impl<'a> Drop for DetachGuard<'a> {
 
 #[pymethods]
 impl PyEmulator {
+    /// 创建模拟器。
+    ///
+    /// Args:
+    ///     instruction_budget (int | None): 每次顶层 guest 调用的指令预算。
+    ///         超出时抛 RuntimeError，并在下一次调用时自动重置（不需要手动
+    ///         复位）。`None` 和 `0` 都表示不设限，默认就是不设限。
+    ///         非零值会安装逐基本块的 hook，有额外开销。
+    ///     cancel_token (CancelToken | None): 跨线程取消句柄，见 `CancelToken`。
+    ///         置位后是粘性的，需要 `token.reset()` 才能继续使用。
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (rootfs=None, apk=None, process_name=None, sdk_version=None, threads=true, translation_cache_size=None, fixed_clock=None, random_seed=None))]
+    #[pyo3(signature = (rootfs=None, apk=None, process_name=None, sdk_version=None, threads=true, translation_cache_size=None, fixed_clock=None, random_seed=None, instruction_budget=None, cancel_token=None))]
     fn new(
         rootfs: Option<&str>,
         apk: Option<&str>,
@@ -215,6 +295,8 @@ impl PyEmulator {
         translation_cache_size: Option<u32>,
         fixed_clock: Option<i64>,
         random_seed: Option<u64>,
+        instruction_budget: Option<u64>,
+        cancel_token: Option<PyRef<'_, PyCancelToken>>,
     ) -> PyResult<Self> {
         catch_unwind(AssertUnwindSafe(|| {
             let mut builder = Emulator::builder();
@@ -240,6 +322,12 @@ impl PyEmulator {
             }
             if let Some(seed) = random_seed {
                 builder = builder.random_seed(seed);
+            }
+            if let Some(budget) = instruction_budget {
+                builder = builder.instruction_budget(budget);
+            }
+            if let Some(token) = cancel_token {
+                builder = builder.cancel_flag(Arc::clone(&token.flag));
             }
             let emu = wrap_result!(builder.build())?;
             Ok(PyEmulator {
@@ -516,6 +604,17 @@ impl PyEmulator {
 
     fn write_bytes(&self, address: u64, bytes: Vec<u8>) -> PyResult<()> {
         wrap_result!(self.emu_mut()?.write_bytes(address, &bytes))
+    }
+
+    /// 写入 guest 代码页。与 `write_bytes` 不同，落在共享只读映射上的写入会
+    /// 先私有化该页再写，因此可以直接改已加载的代码（打补丁 / 替换指令）。
+    ///
+    /// 写入后会失效该范围的翻译缓存，所以对已经执行过的函数打补丁也会生效。
+    /// 副作用是私有化后的页会保留写权限（相当于 guest 自己做过一次
+    /// `mprotect`），改完的代码页之后可被 guest 自行修改。
+    /// 不能在 guest 调用执行期间使用（会报 "already executing"）。
+    fn write_code(&self, address: u64, bytes: Vec<u8>) -> PyResult<()> {
+        wrap_result!(self.emu_mut()?.write_code(address, &bytes))
     }
 
     fn new_cstring(&self, value: &str) -> PyResult<u64> {
@@ -1991,6 +2090,7 @@ impl PyApk {
 #[pymodule]
 fn _unidroid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEmulator>()?;
+    m.add_class::<PyCancelToken>()?;
     m.add_class::<PyJniValue>()?;
     m.add_class::<PyTrace>()?;
     m.add_class::<PyModuleInfo>()?;

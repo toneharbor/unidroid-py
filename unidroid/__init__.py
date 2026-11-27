@@ -1,5 +1,6 @@
 from unidroid._unidroid import (
     Emulator as _RawEmulator,
+    CancelToken,
     JniValue as _JniValue,
     Trace,
     ModuleInfo,
@@ -46,6 +47,17 @@ class Emulator:
     Automatically wraps ``JniHandler`` subclass instances so you can
     pass them directly without calling ``_wrap_handler`` yourself.
 
+    Two extra constructor keywords guard against a guest that spins forever:
+
+    ``instruction_budget=N``
+        Fail the call with ``RuntimeError`` after ``N`` guest instructions.
+        ``None`` / ``0`` means unlimited. The emulator is reusable afterwards.
+
+    ``cancel_token=token``
+        Interrupt a running call from another thread via ``token.cancel()``.
+        The flag is sticky: later calls fail until ``token.reset()``.
+        Keep a reference to the token, otherwise you can never cancel.
+
     All other attributes and methods are delegated to the underlying
     Rust ``Emulator`` instance.
     """
@@ -83,6 +95,7 @@ __all__ = [
     "Allocation",
     "ApkInfo",
     "BlockCount",
+    "CancelToken",
     "Checkpoint",
     "CryptoConstant",
     "DefaultHandler",
